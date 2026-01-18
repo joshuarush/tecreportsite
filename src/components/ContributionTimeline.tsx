@@ -46,7 +46,7 @@ export default function ContributionTimeline({ data, title = 'Fundraising Over T
               tick={{ fontSize: 11 }}
             />
             <Tooltip
-              formatter={(value: number) => formatCurrency(value)}
+              formatter={(value) => formatCurrency(Number(value) || 0)}
               labelFormatter={(label) => {
                 const d = new Date(label);
                 return d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });

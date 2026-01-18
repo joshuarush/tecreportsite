@@ -2,8 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import FacetedFilters, { type FilterValues } from './FacetedFilters';
 import ResultsTable from './ResultsTable';
 import Pagination from './Pagination';
-import { searchContributions, type SearchFilters } from '../lib/search';
-import type { Contribution } from '../lib/supabase';
+import { searchContributions, type SearchFilters, type Contribution } from '../lib/search';
 
 interface ContributorSearchProps {
   initialQuery?: string;

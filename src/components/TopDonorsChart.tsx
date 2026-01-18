@@ -52,7 +52,7 @@ export default function TopDonorsChart({ donors, title = 'Top Donors' }: TopDono
               tick={{ fontSize: 11 }}
             />
             <Tooltip
-              formatter={(value: number) => formatCurrency(value)}
+              formatter={(value) => formatCurrency(Number(value) || 0)}
               labelFormatter={(label: string, payload) => {
                 if (payload && payload[0]) {
                   return payload[0].payload.name;

@@ -3,7 +3,7 @@ import FacetedFilters, { type FilterValues } from './FacetedFilters';
 import ResultsTable from './ResultsTable';
 import Pagination from './Pagination';
 import { searchFilers, type SearchFilters } from '../lib/search';
-import type { Filer } from '../lib/supabase';
+import type { Filer } from '../lib/search';
 
 interface CandidateSearchProps {
   initialQuery?: string;

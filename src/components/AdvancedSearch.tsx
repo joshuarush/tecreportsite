@@ -1,9 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import ResultsTable from './ResultsTable';
 import Pagination from './Pagination';
-import { supabase } from '../lib/supabase';
-import { formatCurrency, formatDate } from '../lib/search';
-import type { Contribution, Expenditure } from '../lib/supabase';
+import { query as duckdbQuery, waitForInit, formatCurrency, formatDate, type Contribution, type Expenditure } from '../lib/duckdb';
 
 type TransactionType = 'contributions' | 'expenditures' | 'both';
 
@@ -178,140 +176,162 @@ export default function AdvancedSearch() {
     setHasSearched(false);
   };
 
+  const escapeSql = (str: string): string => str.replace(/'/g, "''");
+
+  const dateToInt = (dateStr: string): number => parseInt(dateStr.replace(/-/g, ''), 10);
+
   const performSearch = useCallback(async () => {
     setLoading(true);
     setHasSearched(true);
 
     try {
+      await waitForInit();
+
       const { transactionType } = filters;
       const offset = (currentPage - 1) * pageSize;
 
       if (transactionType === 'contributions' || transactionType === 'both') {
-        let query = supabase
-          .from('contributions')
-          .select('*', { count: 'exact' });
+        const conditions: string[] = [];
 
         // Apply name filter
         if (filters.name) {
+          const escapedName = escapeSql(filters.name);
           if (filters.nameSearchType === 'exact') {
-            query = query.ilike('contributor_name', filters.name);
+            conditions.push(`contributor_name ILIKE '${escapedName}'`);
           } else if (filters.nameSearchType === 'starts_with') {
-            query = query.ilike('contributor_name', `${filters.name}%`);
+            conditions.push(`contributor_name ILIKE '${escapedName}%'`);
           } else {
-            query = query.ilike('contributor_name', `%${filters.name}%`);
+            conditions.push(`contributor_name ILIKE '%${escapedName}%'`);
           }
         }
 
         // Apply amount filters
         if (filters.amountMin) {
-          query = query.gte('amount', parseFloat(filters.amountMin));
+          conditions.push(`amount >= ${parseFloat(filters.amountMin)}`);
         }
         if (filters.amountMax) {
-          query = query.lte('amount', parseFloat(filters.amountMax));
+          conditions.push(`amount <= ${parseFloat(filters.amountMax)}`);
         }
 
-        // Apply date filters
+        // Apply date filters (convert YYYY-MM-DD to YYYYMMDD integer)
         if (filters.dateFrom) {
-          query = query.gte('date', filters.dateFrom);
+          conditions.push(`date >= ${dateToInt(filters.dateFrom)}`);
         }
         if (filters.dateTo) {
-          query = query.lte('date', filters.dateTo);
+          conditions.push(`date <= ${dateToInt(filters.dateTo)}`);
         }
 
         // Apply location filters
         if (filters.city) {
-          query = query.ilike('contributor_city', `%${filters.city}%`);
+          conditions.push(`contributor_city ILIKE '%${escapeSql(filters.city)}%'`);
         }
         if (filters.state) {
-          query = query.eq('contributor_state', filters.state);
+          conditions.push(`contributor_state = '${escapeSql(filters.state)}'`);
         }
 
         // Apply contributor filters
         if (filters.employer) {
-          query = query.ilike('contributor_employer', `%${filters.employer}%`);
+          conditions.push(`contributor_employer ILIKE '%${escapeSql(filters.employer)}%'`);
         }
         if (filters.occupation) {
-          query = query.ilike('contributor_occupation', `%${filters.occupation}%`);
+          conditions.push(`contributor_occupation ILIKE '%${escapeSql(filters.occupation)}%'`);
         }
         if (filters.contributorType) {
-          query = query.eq('contributor_type', filters.contributorType);
+          conditions.push(`contributor_type = '${escapeSql(filters.contributorType)}'`);
         }
 
         // Apply filer name filter
         if (filters.filerName) {
-          query = query.ilike('filer_name', `%${filters.filerName}%`);
+          conditions.push(`filer_name ILIKE '%${escapeSql(filters.filerName)}%'`);
         }
 
-        // Pagination
-        const { data, error, count } = await query
-          .order('date', { ascending: false })
-          .range(offset, offset + pageSize - 1);
+        const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
-        if (error) throw error;
+        // Get count
+        const countResult = await duckdbQuery<{ count: number }>(`
+          SELECT COUNT(*) as count FROM contributions ${whereClause}
+        `);
+        const count = Number(countResult[0]?.count || 0);
+
+        // Get data
+        const data = await duckdbQuery<Contribution>(`
+          SELECT * FROM contributions
+          ${whereClause}
+          ORDER BY date DESC
+          LIMIT ${pageSize} OFFSET ${offset}
+        `);
 
         setResults(data || []);
-        setTotalCount(count || 0);
+        setTotalCount(count);
       }
 
       if (transactionType === 'expenditures') {
-        let query = supabase
-          .from('expenditures')
-          .select('*', { count: 'exact' });
+        const conditions: string[] = [];
 
         // Apply payee name filter
         if (filters.payeeName || filters.name) {
-          const searchName = filters.payeeName || filters.name;
+          const searchName = escapeSql(filters.payeeName || filters.name);
           if (filters.nameSearchType === 'exact') {
-            query = query.ilike('payee_name', searchName);
+            conditions.push(`payee_name ILIKE '${searchName}'`);
           } else if (filters.nameSearchType === 'starts_with') {
-            query = query.ilike('payee_name', `${searchName}%`);
+            conditions.push(`payee_name ILIKE '${searchName}%'`);
           } else {
-            query = query.ilike('payee_name', `%${searchName}%`);
+            conditions.push(`payee_name ILIKE '%${searchName}%'`);
           }
         }
 
         // Apply amount filters
         if (filters.amountMin) {
-          query = query.gte('amount', parseFloat(filters.amountMin));
+          conditions.push(`amount >= ${parseFloat(filters.amountMin)}`);
         }
         if (filters.amountMax) {
-          query = query.lte('amount', parseFloat(filters.amountMax));
+          conditions.push(`amount <= ${parseFloat(filters.amountMax)}`);
         }
 
         // Apply date filters
         if (filters.dateFrom) {
-          query = query.gte('date', filters.dateFrom);
+          conditions.push(`date >= ${dateToInt(filters.dateFrom)}`);
         }
         if (filters.dateTo) {
-          query = query.lte('date', filters.dateTo);
+          conditions.push(`date <= ${dateToInt(filters.dateTo)}`);
         }
 
         // Apply location filters
         if (filters.city) {
-          query = query.ilike('payee_city', `%${filters.city}%`);
+          conditions.push(`payee_city ILIKE '%${escapeSql(filters.city)}%'`);
         }
         if (filters.state) {
-          query = query.eq('payee_state', filters.state);
+          conditions.push(`payee_state = '${escapeSql(filters.state)}'`);
         }
 
         // Apply category filter
         if (filters.expenditureCategory) {
-          query = query.eq('category', filters.expenditureCategory);
+          conditions.push(`category = '${escapeSql(filters.expenditureCategory)}'`);
         }
 
         // Apply filer name filter
         if (filters.filerName) {
-          query = query.ilike('filer_name', `%${filters.filerName}%`);
+          conditions.push(`filer_name ILIKE '%${escapeSql(filters.filerName)}%'`);
         }
 
-        const { data, error, count } = await query
-          .order('date', { ascending: false })
-          .range(offset, offset + pageSize - 1);
+        const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
-        if (error) throw error;
+        // Get count
+        const countResult = await duckdbQuery<{ count: number }>(`
+          SELECT COUNT(*) as count FROM expenditures ${whereClause}
+        `);
+        const count = Number(countResult[0]?.count || 0);
+
+        // Get data
+        const data = await duckdbQuery<Expenditure>(`
+          SELECT * FROM expenditures
+          ${whereClause}
+          ORDER BY date DESC
+          LIMIT ${pageSize} OFFSET ${offset}
+        `);
 
         setResults(data || []);
-        setTotalCount(count || 0);
+        setTotalCount(count);
       }
     } catch (error) {
       console.error('Search error:', error);

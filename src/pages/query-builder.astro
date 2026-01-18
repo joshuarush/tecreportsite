@@ -1,6 +1,6 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
-import QueryBuilder from '../components/QueryBuilder';
+import QueryBuilderComponent from '../components/QueryBuilder';
 ---
 
 <BaseLayout title="Query Builder" description="Build complex queries with boolean logic for Texas campaign finance data">
@@ -18,7 +18,7 @@ import QueryBuilder from '../components/QueryBuilder';
       </div>
 
       <!-- Query Builder Component -->
-      <QueryBuilder client:load />
+      <QueryBuilderComponent client:load />
     </div>
   </div>
 </BaseLayout>

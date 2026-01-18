@@ -1,5 +1,5 @@
 import { formatCurrency, formatDate } from '../lib/search';
-import type { Contribution, Filer, Expenditure } from '../lib/supabase';
+import type { Contribution, Filer, Expenditure } from '../lib/search';
 
 interface ContributionsTableProps {
   type: 'contributions';

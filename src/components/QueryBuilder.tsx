@@ -1,6 +1,5 @@
 import { useState, useCallback } from 'react';
-import { supabase } from '../lib/supabase';
-import { formatCurrency, formatDate } from '../lib/search';
+import { query as duckdbQuery, formatCurrency, formatDate, waitForInit } from '../lib/duckdb';
 
 // Query condition types
 type Operator = 'equals' | 'not_equals' | 'contains' | 'not_contains' | 'starts_with' | 'ends_with' |
@@ -259,6 +258,71 @@ export default function QueryBuilder() {
     return query;
   }, [dataSource, rootGroup, aggregation, limit, fields]);
 
+  // Escape SQL string
+  const escapeSql = (str: string): string => str.replace(/'/g, "''");
+
+  // Build SQL condition from a single condition
+  const buildSqlCondition = (cond: Condition): string => {
+    const { field, operator, value, value2 } = cond;
+    const escapedValue = escapeSql(value);
+    const escapedValue2 = value2 ? escapeSql(value2) : '';
+
+    switch (operator) {
+      case 'equals':
+        return `${field} = '${escapedValue}'`;
+      case 'not_equals':
+        return `${field} != '${escapedValue}'`;
+      case 'contains':
+        return `${field} ILIKE '%${escapedValue}%'`;
+      case 'not_contains':
+        return `${field} NOT ILIKE '%${escapedValue}%'`;
+      case 'starts_with':
+        return `${field} ILIKE '${escapedValue}%'`;
+      case 'ends_with':
+        return `${field} ILIKE '%${escapedValue}'`;
+      case 'greater_than':
+        return `${field} > '${escapedValue}'`;
+      case 'less_than':
+        return `${field} < '${escapedValue}'`;
+      case 'between':
+        return `${field} BETWEEN '${escapedValue}' AND '${escapedValue2}'`;
+      case 'in_list':
+        const items = value.split(',').map(v => `'${escapeSql(v.trim())}'`).join(', ');
+        return `${field} IN (${items})`;
+      case 'is_empty':
+        return `${field} IS NULL`;
+      case 'is_not_empty':
+        return `${field} IS NOT NULL`;
+      case 'regex':
+        return `regexp_matches(${field}, '${escapedValue}')`;
+      default:
+        return '1=1';
+    }
+  };
+
+  // Build SQL WHERE clause from condition group (supports nested AND/OR)
+  const buildWhereClause = (group: ConditionGroup): string => {
+    const parts: string[] = [];
+
+    for (const item of group.conditions) {
+      if ('conditions' in item) {
+        // Nested group
+        const nestedClause = buildWhereClause(item);
+        if (nestedClause) {
+          parts.push(`(${nestedClause})`);
+        }
+      } else {
+        // Single condition
+        if (item.value || item.operator === 'is_empty' || item.operator === 'is_not_empty') {
+          parts.push(buildSqlCondition(item));
+        }
+      }
+    }
+
+    if (parts.length === 0) return '';
+    return parts.join(` ${group.logicalOperator} `);
+  };
+
   // Execute query
   const executeQuery = async () => {
     setLoading(true);
@@ -266,121 +330,82 @@ export default function QueryBuilder() {
     const startTime = Date.now();
 
     try {
-      // Build Supabase query from conditions
-      let query = supabase.from(dataSource).select('*', { count: 'exact' });
+      // Initialize DuckDB
+      await waitForInit();
 
-      const applyCondition = (q: any, cond: Condition): any => {
-        const { field, operator, value, value2 } = cond;
+      // Build WHERE clause
+      const whereClause = buildWhereClause(rootGroup);
+      const whereStr = whereClause ? `WHERE ${whereClause}` : '';
 
-        switch (operator) {
-          case 'equals':
-            return q.eq(field, value);
-          case 'not_equals':
-            return q.neq(field, value);
-          case 'contains':
-            return q.ilike(field, `%${value}%`);
-          case 'not_contains':
-            return q.not(field, 'ilike', `%${value}%`);
-          case 'starts_with':
-            return q.ilike(field, `${value}%`);
-          case 'ends_with':
-            return q.ilike(field, `%${value}`);
-          case 'greater_than':
-            return q.gt(field, value);
-          case 'less_than':
-            return q.lt(field, value);
-          case 'between':
-            return q.gte(field, value).lte(field, value2);
-          case 'in_list':
-            return q.in(field, value.split(',').map(v => v.trim()));
-          case 'is_empty':
-            return q.is(field, null);
-          case 'is_not_empty':
-            return q.not(field, 'is', null);
-          case 'regex':
-            // Supabase uses ~ for regex
-            return q.match({ [field]: value }); // Simplified - full regex needs custom function
-          default:
-            return q;
-        }
-      };
+      // Build and execute query
+      let sql: string;
+      let countSql: string;
 
-      // Apply conditions recursively
-      // Note: Supabase doesn't support arbitrary boolean grouping, so we flatten with AND
-      // For complex OR queries, we'd need to use .or() with raw filters
-      const flattenConditions = (group: ConditionGroup): Condition[] => {
-        return group.conditions.flatMap(item =>
-          'conditions' in item ? flattenConditions(item) : [item]
-        );
-      };
+      if (aggregation.enabled && aggregation.groupBy.length > 0) {
+        // Aggregation query
+        const groupByFields = aggregation.groupBy.join(', ');
+        const metrics: string[] = [];
+        if (aggregation.metrics.includes('sum')) metrics.push('SUM(amount) as _sum');
+        if (aggregation.metrics.includes('count')) metrics.push('COUNT(*) as _count');
+        if (aggregation.metrics.includes('avg')) metrics.push('AVG(amount) as _avg');
+        if (aggregation.metrics.includes('min')) metrics.push('MIN(amount) as _min');
+        if (aggregation.metrics.includes('max')) metrics.push('MAX(amount) as _max');
 
-      const allConditions = flattenConditions(rootGroup);
-      for (const cond of allConditions) {
-        if (cond.value || cond.operator === 'is_empty' || cond.operator === 'is_not_empty') {
-          query = applyCondition(query, cond);
-        }
+        const metricsStr = metrics.length > 0 ? `, ${metrics.join(', ')}` : '';
+        const orderField = `_${aggregation.sortBy}`;
+        const orderDir = aggregation.sortDir.toUpperCase();
+
+        sql = `
+          SELECT ${groupByFields}${metricsStr}
+          FROM ${dataSource}
+          ${whereStr}
+          GROUP BY ${groupByFields}
+          ORDER BY ${orderField} ${orderDir}
+          LIMIT ${limit}
+        `;
+
+        countSql = `
+          SELECT COUNT(DISTINCT (${groupByFields})) as count
+          FROM ${dataSource}
+          ${whereStr}
+        `;
+      } else {
+        // Regular query
+        sql = `
+          SELECT *
+          FROM ${dataSource}
+          ${whereStr}
+          ORDER BY date DESC
+          LIMIT ${limit}
+        `;
+
+        countSql = `
+          SELECT COUNT(*) as count
+          FROM ${dataSource}
+          ${whereStr}
+        `;
       }
 
-      // Apply limit
-      query = query.limit(limit);
+      // Execute queries
+      const [data, countResult] = await Promise.all([
+        duckdbQuery(sql),
+        duckdbQuery<{ count: number }>(countSql),
+      ]);
 
-      // Execute
-      const { data, error: queryError, count } = await query;
+      const count = Number(countResult[0]?.count || 0);
 
-      if (queryError) throw queryError;
-
-      setResults(data || []);
-      setTotalCount(count || 0);
-
-      // Calculate aggregations if enabled
-      if (aggregation.enabled && aggregation.groupBy.length > 0 && data) {
-        const groups: Record<string, any[]> = {};
-        for (const row of data) {
-          const key = aggregation.groupBy.map(f => row[f] || 'Unknown').join(' | ');
-          if (!groups[key]) groups[key] = [];
-          groups[key].push(row);
-        }
-
-        const aggregated = Object.entries(groups).map(([key, rows]) => {
-          const result: any = { _groupKey: key };
-          aggregation.groupBy.forEach((field, i) => {
-            result[field] = rows[0]?.[field] || 'Unknown';
-          });
-
-          if (aggregation.metrics.includes('sum')) {
-            result._sum = rows.reduce((sum, r) => sum + (parseFloat(r.amount) || 0), 0);
-          }
-          if (aggregation.metrics.includes('count')) {
-            result._count = rows.length;
-          }
-          if (aggregation.metrics.includes('avg')) {
-            const sum = rows.reduce((s, r) => s + (parseFloat(r.amount) || 0), 0);
-            result._avg = sum / rows.length;
-          }
-          if (aggregation.metrics.includes('min')) {
-            result._min = Math.min(...rows.map(r => parseFloat(r.amount) || 0));
-          }
-          if (aggregation.metrics.includes('max')) {
-            result._max = Math.max(...rows.map(r => parseFloat(r.amount) || 0));
-          }
-
-          return result;
-        });
-
-        // Sort
-        aggregated.sort((a, b) => {
-          const aVal = a[`_${aggregation.sortBy}`] || 0;
-          const bVal = b[`_${aggregation.sortBy}`] || 0;
-          return aggregation.sortDir === 'desc' ? bVal - aVal : aVal - bVal;
-        });
-
-        setAggregatedResults(aggregated);
+      if (aggregation.enabled && aggregation.groupBy.length > 0) {
+        setAggregatedResults(data);
+        setResults([]);
       } else {
+        setResults(data);
         setAggregatedResults([]);
       }
 
+      setTotalCount(count);
       setExecutionTime(Date.now() - startTime);
     } catch (err: any) {
+      console.error('Query error:', err);
       setError(err.message || 'Query failed');
     } finally {
       setLoading(false);

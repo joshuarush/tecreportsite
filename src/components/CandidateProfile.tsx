@@ -4,7 +4,7 @@ import ContributionTimeline from './ContributionTimeline';
 import ResultsTable from './ResultsTable';
 import Pagination from './Pagination';
 import { getFilerById, getTopDonors, searchContributions, formatCurrency } from '../lib/search';
-import type { Filer, Contribution } from '../lib/supabase';
+import type { Filer, Contribution } from '../lib/search';
 
 interface CandidateProfileProps {
   filerId: string;
