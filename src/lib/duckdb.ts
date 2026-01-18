@@ -9,6 +9,29 @@ let connection: duckdb.AsyncDuckDBConnection | null = null;
 let initialized = false;
 let initPromise: Promise<void> | null = null;
 
+// Initialization status tracking
+export type InitStatus = 'idle' | 'loading-wasm' | 'loading-data' | 'ready' | 'error';
+let initStatus: InitStatus = 'idle';
+let initError: string | null = null;
+const statusListeners: Set<(status: InitStatus, error?: string) => void> = new Set();
+
+function setInitStatus(status: InitStatus, error?: string) {
+  initStatus = status;
+  initError = error || null;
+  statusListeners.forEach(listener => listener(status, error));
+}
+
+export function getInitStatus(): { status: InitStatus; error: string | null } {
+  return { status: initStatus, error: initError };
+}
+
+export function onInitStatusChange(callback: (status: InitStatus, error?: string) => void): () => void {
+  statusListeners.add(callback);
+  // Immediately call with current status
+  callback(initStatus, initError || undefined);
+  return () => statusListeners.delete(callback);
+}
+
 // Type definitions matching the existing interface
 export interface Filer {
   id: string;
@@ -82,7 +105,9 @@ async function initDuckDB(): Promise<void> {
   if (initPromise) return initPromise;
 
   initPromise = (async () => {
-    console.log('Initializing DuckDB-WASM...');
+    try {
+      setInitStatus('loading-wasm');
+      console.log('Initializing DuckDB-WASM...');
 
     // Get the bundle from jsDelivr CDN
     const JSDELIVR_BUNDLES = duckdb.getJsDelivrBundles();
@@ -102,6 +127,9 @@ async function initDuckDB(): Promise<void> {
 
     // Enable httpfs for remote parquet files
     await connection.query(`INSTALL httpfs; LOAD httpfs;`);
+
+    setInitStatus('loading-data');
+    console.log('Loading data from R2...');
 
     // Create views for the remote parquet files with compatibility aliases
     await connection.query(`
@@ -131,7 +159,14 @@ async function initDuckDB(): Promise<void> {
     `);
 
     initialized = true;
+    setInitStatus('ready');
     console.log('DuckDB-WASM initialized successfully');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      setInitStatus('error', message);
+      console.error('DuckDB initialization failed:', error);
+      throw error;
+    }
   })();
 
   return initPromise;

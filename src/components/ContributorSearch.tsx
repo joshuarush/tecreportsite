@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import FacetedFilters, { type FilterValues } from './FacetedFilters';
 import ResultsTable from './ResultsTable';
 import Pagination from './Pagination';
+import DatabaseLoader from './DatabaseLoader';
 import { searchContributions, type SearchFilters, type Contribution } from '../lib/search';
 
 interface ContributorSearchProps {
@@ -75,6 +76,7 @@ export default function ContributorSearch({ initialQuery = '' }: ContributorSear
   };
 
   return (
+    <DatabaseLoader>
     <div className="space-y-6">
       {/* Search Input */}
       <div className="relative">
@@ -132,5 +134,6 @@ export default function ContributorSearch({ initialQuery = '' }: ContributorSear
         onPageChange={handlePageChange}
       />
     </div>
+    </DatabaseLoader>
   );
 }

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import ResultsTable from './ResultsTable';
 import Pagination from './Pagination';
+import DatabaseLoader from './DatabaseLoader';
 import { query as duckdbQuery, waitForInit, formatCurrency, formatDate, type Contribution, type Expenditure } from '../lib/duckdb';
 
 type TransactionType = 'contributions' | 'expenditures' | 'both';
@@ -390,6 +391,7 @@ export default function AdvancedSearch() {
   );
 
   return (
+    <DatabaseLoader>
     <div className="grid lg:grid-cols-[400px_1fr] gap-6">
       {/* Filters Panel */}
       <div className="space-y-4">
@@ -837,5 +839,6 @@ export default function AdvancedSearch() {
         )}
       </div>
     </div>
+    </DatabaseLoader>
   );
 }

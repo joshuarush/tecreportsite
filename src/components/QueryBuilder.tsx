@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
 import { query as duckdbQuery, formatCurrency, formatDate, waitForInit } from '../lib/duckdb';
+import DatabaseLoader from './DatabaseLoader';
 
 // Query condition types
 type Operator = 'equals' | 'not_equals' | 'contains' | 'not_contains' | 'starts_with' | 'ends_with' |
@@ -567,6 +568,7 @@ export default function QueryBuilder() {
   };
 
   return (
+    <DatabaseLoader>
     <div className="space-y-6">
       {/* Query Builder Header */}
       <div className="bg-gradient-to-r from-texas-blue to-blue-900 text-white rounded-xl p-6">
@@ -842,5 +844,6 @@ export default function QueryBuilder() {
         </div>
       )}
     </div>
+    </DatabaseLoader>
   );
 }

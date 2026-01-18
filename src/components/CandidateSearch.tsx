@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import FacetedFilters, { type FilterValues } from './FacetedFilters';
 import ResultsTable from './ResultsTable';
 import Pagination from './Pagination';
+import DatabaseLoader from './DatabaseLoader';
 import { searchFilers, type SearchFilters } from '../lib/search';
 import type { Filer } from '../lib/search';
 
@@ -68,6 +69,7 @@ export default function CandidateSearch({ initialQuery = '' }: CandidateSearchPr
   };
 
   return (
+    <DatabaseLoader>
     <div className="space-y-6">
       {/* Search Input */}
       <div className="relative">
@@ -120,5 +122,6 @@ export default function CandidateSearch({ initialQuery = '' }: CandidateSearchPr
         onPageChange={handlePageChange}
       />
     </div>
+    </DatabaseLoader>
   );
 }

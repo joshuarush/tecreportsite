@@ -3,6 +3,7 @@ import TopDonorsChart from './TopDonorsChart';
 import ContributionTimeline from './ContributionTimeline';
 import ResultsTable from './ResultsTable';
 import Pagination from './Pagination';
+import DatabaseLoader from './DatabaseLoader';
 import { getFilerById, getTopDonors, searchContributions, formatCurrency } from '../lib/search';
 import type { Filer, Contribution } from '../lib/search';
 
@@ -98,6 +99,7 @@ export default function CandidateProfile({ filerId }: CandidateProfileProps) {
   const cashOnHand = totalContributions - totalExpended;
 
   return (
+    <DatabaseLoader>
     <div className="space-y-6">
       {/* Header Card */}
       <div className="bg-white rounded-xl border border-slate-200 p-6">
@@ -179,5 +181,6 @@ export default function CandidateProfile({ filerId }: CandidateProfileProps) {
         </div>
       </div>
     </div>
+    </DatabaseLoader>
   );
 }
