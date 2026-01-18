@@ -1,18 +1,13 @@
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from 'recharts';
 import { formatCurrency } from '../lib/search';
-
-interface TimelineData {
-  date: string;
-  amount: number;
-  cumulative: number;
-}
+import type { TimelineDataPoint } from '../lib/search';
 
 interface ContributionTimelineProps {
-  data: TimelineData[];
+  data: TimelineDataPoint[];
   title?: string;
 }
 
-export default function ContributionTimeline({ data, title = 'Fundraising Over Time' }: ContributionTimelineProps) {
+export default function ContributionTimeline({ data, title = 'Fundraising Timeline' }: ContributionTimelineProps) {
   if (data.length === 0) {
     return (
       <div className="bg-white rounded-xl border border-slate-200 p-6">
@@ -25,7 +20,7 @@ export default function ContributionTimeline({ data, title = 'Fundraising Over T
   return (
     <div className="bg-white rounded-xl border border-slate-200 p-6">
       <h3 className="text-lg font-semibold text-slate-900 mb-4">{title}</h3>
-      <div className="h-64">
+      <div className="h-72">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={data} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
@@ -46,7 +41,14 @@ export default function ContributionTimeline({ data, title = 'Fundraising Over T
               tick={{ fontSize: 11 }}
             />
             <Tooltip
-              formatter={(value) => formatCurrency(Number(value) || 0)}
+              formatter={(value, name) => {
+                const labels: Record<string, string> = {
+                  cumulativeContributions: 'Total Raised',
+                  cumulativeExpenditures: 'Total Spent',
+                  cashOnHand: 'Cash on Hand',
+                };
+                return [formatCurrency(Number(value) || 0), labels[name as string] || name];
+              }}
               labelFormatter={(label) => {
                 const d = new Date(label);
                 return d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
@@ -58,13 +60,39 @@ export default function ContributionTimeline({ data, title = 'Fundraising Over T
                 padding: '8px 12px',
               }}
             />
+            <Legend
+              formatter={(value: string) => {
+                const labels: Record<string, string> = {
+                  cumulativeContributions: 'Total Raised',
+                  cumulativeExpenditures: 'Total Spent',
+                  cashOnHand: 'Cash on Hand',
+                };
+                return labels[value] || value;
+              }}
+            />
             <Line
               type="monotone"
-              dataKey="cumulative"
+              dataKey="cumulativeContributions"
+              stroke="#16a34a"
+              strokeWidth={2}
+              dot={false}
+              name="cumulativeContributions"
+            />
+            <Line
+              type="monotone"
+              dataKey="cumulativeExpenditures"
+              stroke="#BF0D3E"
+              strokeWidth={2}
+              dot={false}
+              name="cumulativeExpenditures"
+            />
+            <Line
+              type="monotone"
+              dataKey="cashOnHand"
               stroke="#002868"
               strokeWidth={2}
               dot={false}
-              name="Total Raised"
+              name="cashOnHand"
             />
           </LineChart>
         </ResponsiveContainer>

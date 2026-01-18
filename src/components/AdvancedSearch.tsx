@@ -119,11 +119,56 @@ const PARTIES = [
 const STATES = [
   { value: '', label: 'All States' },
   { value: 'TX', label: 'Texas' },
+  { value: 'AL', label: 'Alabama' },
+  { value: 'AK', label: 'Alaska' },
+  { value: 'AZ', label: 'Arizona' },
+  { value: 'AR', label: 'Arkansas' },
   { value: 'CA', label: 'California' },
-  { value: 'NY', label: 'New York' },
+  { value: 'CO', label: 'Colorado' },
+  { value: 'CT', label: 'Connecticut' },
+  { value: 'DE', label: 'Delaware' },
+  { value: 'DC', label: 'District of Columbia' },
   { value: 'FL', label: 'Florida' },
+  { value: 'GA', label: 'Georgia' },
+  { value: 'HI', label: 'Hawaii' },
+  { value: 'ID', label: 'Idaho' },
   { value: 'IL', label: 'Illinois' },
-  // Add more as needed
+  { value: 'IN', label: 'Indiana' },
+  { value: 'IA', label: 'Iowa' },
+  { value: 'KS', label: 'Kansas' },
+  { value: 'KY', label: 'Kentucky' },
+  { value: 'LA', label: 'Louisiana' },
+  { value: 'ME', label: 'Maine' },
+  { value: 'MD', label: 'Maryland' },
+  { value: 'MA', label: 'Massachusetts' },
+  { value: 'MI', label: 'Michigan' },
+  { value: 'MN', label: 'Minnesota' },
+  { value: 'MS', label: 'Mississippi' },
+  { value: 'MO', label: 'Missouri' },
+  { value: 'MT', label: 'Montana' },
+  { value: 'NE', label: 'Nebraska' },
+  { value: 'NV', label: 'Nevada' },
+  { value: 'NH', label: 'New Hampshire' },
+  { value: 'NJ', label: 'New Jersey' },
+  { value: 'NM', label: 'New Mexico' },
+  { value: 'NY', label: 'New York' },
+  { value: 'NC', label: 'North Carolina' },
+  { value: 'ND', label: 'North Dakota' },
+  { value: 'OH', label: 'Ohio' },
+  { value: 'OK', label: 'Oklahoma' },
+  { value: 'OR', label: 'Oregon' },
+  { value: 'PA', label: 'Pennsylvania' },
+  { value: 'RI', label: 'Rhode Island' },
+  { value: 'SC', label: 'South Carolina' },
+  { value: 'SD', label: 'South Dakota' },
+  { value: 'TN', label: 'Tennessee' },
+  { value: 'UT', label: 'Utah' },
+  { value: 'VT', label: 'Vermont' },
+  { value: 'VA', label: 'Virginia' },
+  { value: 'WA', label: 'Washington' },
+  { value: 'WV', label: 'West Virginia' },
+  { value: 'WI', label: 'Wisconsin' },
+  { value: 'WY', label: 'Wyoming' },
 ];
 
 const EXPENDITURE_CATEGORIES = [
@@ -227,7 +272,12 @@ export default function AdvancedSearch() {
           conditions.push(`contributor_city ILIKE '%${escapeSql(filters.city)}%'`);
         }
         if (filters.state) {
-          conditions.push(`contributor_state = '${escapeSql(filters.state)}'`);
+          // Handle both abbreviation and full name (e.g., TX and TEXAS)
+          if (filters.state === 'TX') {
+            conditions.push(`(contributor_state = 'TX' OR contributor_state = 'TEXAS' OR contributor_state ILIKE 'Texas')`);
+          } else {
+            conditions.push(`contributor_state = '${escapeSql(filters.state)}'`);
+          }
         }
 
         // Apply contributor filters
@@ -302,7 +352,12 @@ export default function AdvancedSearch() {
           conditions.push(`payee_city ILIKE '%${escapeSql(filters.city)}%'`);
         }
         if (filters.state) {
-          conditions.push(`payee_state = '${escapeSql(filters.state)}'`);
+          // Handle both abbreviation and full name (e.g., TX and TEXAS)
+          if (filters.state === 'TX') {
+            conditions.push(`(payee_state = 'TX' OR payee_state = 'TEXAS' OR payee_state ILIKE 'Texas')`);
+          } else {
+            conditions.push(`payee_state = '${escapeSql(filters.state)}'`);
+          }
         }
 
         // Apply category filter
