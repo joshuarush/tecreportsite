@@ -1,0 +1,137 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import SearchBar from '../components/SearchBar';
+import StatsCard from '../components/StatsCard';
+---
+
+<BaseLayout title="Home">
+  <!-- Hero Section -->
+  <section class="bg-gradient-to-br from-texas-blue via-blue-900 to-slate-900 text-white py-20">
+    <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+      <h1 class="text-4xl sm:text-5xl font-bold mb-4">
+        Follow the Money in Texas Politics
+      </h1>
+      <p class="text-xl text-blue-200 mb-10 max-w-2xl mx-auto">
+        Search millions of campaign finance records. Find who's funding Texas candidates and where the money goes.
+      </p>
+
+      <SearchBar client:load />
+
+      <div class="flex flex-wrap justify-center gap-4 mt-8">
+        <a href="/search/contributors" class="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-sm font-medium transition-colors">
+          Search Donors
+        </a>
+        <a href="/search/candidates" class="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-sm font-medium transition-colors">
+          Browse Candidates
+        </a>
+        <a href="/search/transactions" class="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-sm font-medium transition-colors">
+          View All Transactions
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Stats Section -->
+  <section class="py-16 bg-white border-b border-slate-200">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-6">
+        <StatsCard
+          label="Contributions"
+          value="8M+"
+          description="Since 2020"
+          client:visible
+        />
+        <StatsCard
+          label="Total Raised"
+          value="$2B+"
+          description="Across all filers"
+          client:visible
+        />
+        <StatsCard
+          label="Candidates & PACs"
+          value="20K+"
+          description="Active filers"
+          client:visible
+        />
+        <StatsCard
+          label="Expenditures"
+          value="1.5M+"
+          description="Spending records"
+          client:visible
+        />
+      </div>
+    </div>
+  </section>
+
+  <!-- Quick Search Section -->
+  <section class="py-16">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <h2 class="text-2xl font-bold text-slate-900 mb-8 text-center">
+        Explore Campaign Finance Data
+      </h2>
+
+      <div class="grid md:grid-cols-3 gap-8">
+        <!-- Donor Lookup -->
+        <a href="/search/contributors" class="card hover:shadow-md transition-shadow group">
+          <div class="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center mb-4 group-hover:bg-blue-200 transition-colors">
+            <svg class="w-6 h-6 text-texas-blue" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+            </svg>
+          </div>
+          <h3 class="text-lg font-semibold text-slate-900 mb-2">Donor Lookup</h3>
+          <p class="text-slate-600 text-sm">
+            Search by contributor name to see all political donations made by individuals or organizations.
+          </p>
+        </a>
+
+        <!-- Candidate Search -->
+        <a href="/search/candidates" class="card hover:shadow-md transition-shadow group">
+          <div class="w-12 h-12 bg-red-100 rounded-lg flex items-center justify-center mb-4 group-hover:bg-red-200 transition-colors">
+            <svg class="w-6 h-6 text-texas-red" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+            </svg>
+          </div>
+          <h3 class="text-lg font-semibold text-slate-900 mb-2">Candidate Profiles</h3>
+          <p class="text-slate-600 text-sm">
+            View detailed fundraising and spending information for candidates and political committees.
+          </p>
+        </a>
+
+        <!-- Transaction Search -->
+        <a href="/search/transactions" class="card hover:shadow-md transition-shadow group">
+          <div class="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center mb-4 group-hover:bg-green-200 transition-colors">
+            <svg class="w-6 h-6 text-green-700" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </div>
+          <h3 class="text-lg font-semibold text-slate-900 mb-2">All Transactions</h3>
+          <p class="text-slate-600 text-sm">
+            Browse and filter contributions and expenditures with advanced search options.
+          </p>
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- About Section -->
+  <section class="py-16 bg-slate-50">
+    <div class="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+      <h2 class="text-2xl font-bold text-slate-900 mb-4">
+        About This Data
+      </h2>
+      <p class="text-slate-600 mb-6">
+        This database contains campaign finance records from the Texas Ethics Commission,
+        covering contributions and expenditures from 2020 to the present. All data is
+        public information required to be disclosed under Texas election law.
+      </p>
+      <a
+        href="https://www.ethics.state.tx.us/search/cf/"
+        target="_blank"
+        rel="noopener noreferrer"
+        class="text-texas-blue hover:text-blue-800 font-medium"
+      >
+        View original data on TEC website →
+      </a>
+    </div>
+  </section>
+</BaseLayout>
