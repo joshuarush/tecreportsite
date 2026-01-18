@@ -52,6 +52,8 @@ export default function CandidateProfile({ filerId }: CandidateProfileProps) {
   const [datePreset, setDatePreset] = useState<DatePreset>('all');
   const [customDateFrom, setCustomDateFrom] = useState('');
   const [customDateTo, setCustomDateTo] = useState('');
+  const [filterLoading, setFilterLoading] = useState(false);
+  const [filtersApplied, setFiltersApplied] = useState(false);
 
   const getDateRange = useCallback((): { from?: string; to?: string } => {
     switch (datePreset) {
@@ -95,46 +97,58 @@ export default function CandidateProfile({ filerId }: CandidateProfileProps) {
     loadFiler();
   }, [filerId]);
 
-  // Load filtered data (changes with date filter)
-  useEffect(() => {
-    async function loadFilteredData() {
-      if (!filer) return;
+  // Function to apply filters and load all filtered data
+  const applyFilters = useCallback(async () => {
+    if (!filer) return;
 
-      try {
-        const { from, to } = getDateRange();
+    setFilterLoading(true);
+    setCurrentPage(1);
 
-        const [stats, donors, timeline] = await Promise.all([
-          getFilerStatsFiltered(filerId, from, to),
-          getTopDonorsFiltered(filerId, 10, from, to),
-          getReportTimeline(filerId, from, to),
-        ]);
+    try {
+      const { from, to } = getDateRange();
 
-        setTotalContributions(stats.totalContributions);
-        setTotalExpended(stats.totalExpended);
-        setContributionCount(stats.contributionCount);
-        setDataDateRange(stats.dateRange);
-        setTopDonors(donors);
-        setReportTimeline(timeline);
-      } catch (error) {
-        console.error('Error loading filtered data:', error);
-      }
+      const [stats, donors, timeline, contribResult] = await Promise.all([
+        getFilerStatsFiltered(filerId, from, to),
+        getTopDonorsFiltered(filerId, 10, from, to),
+        getReportTimeline(filerId, from, to),
+        searchContributions(
+          { filerId, dateFrom: from, dateTo: to },
+          { page: 1, pageSize }
+        ),
+      ]);
+
+      setTotalContributions(stats.totalContributions);
+      setTotalExpended(stats.totalExpended);
+      setContributionCount(stats.contributionCount);
+      setDataDateRange(stats.dateRange);
+      setTopDonors(donors);
+      setReportTimeline(timeline);
+      setContributions(contribResult.data);
+      setContributionsTotal(contribResult.count);
+      setFiltersApplied(true);
+    } catch (error) {
+      console.error('Error applying filters:', error);
+    } finally {
+      setFilterLoading(false);
     }
-    loadFilteredData();
-  }, [filerId, filer, getDateRange]);
+  }, [filer, filerId, getDateRange, pageSize]);
 
-  // Load contributions for table (with pagination)
+  // Load initial data when filer is loaded (with default "all" filter)
   useEffect(() => {
-    async function loadContributions() {
-      if (!filer) return;
+    if (filer && !filtersApplied) {
+      applyFilters();
+    }
+  }, [filer, filtersApplied, applyFilters]);
+
+  // Load contributions for table when page changes (not filter changes)
+  useEffect(() => {
+    async function loadContributionsPage() {
+      if (!filer || !filtersApplied || currentPage === 1) return;
 
       try {
         const { from, to } = getDateRange();
         const result = await searchContributions(
-          {
-            filerId,
-            dateFrom: from,
-            dateTo: to,
-          },
+          { filerId, dateFrom: from, dateTo: to },
           { page: currentPage, pageSize }
         );
         setContributions(result.data);
@@ -143,13 +157,8 @@ export default function CandidateProfile({ filerId }: CandidateProfileProps) {
         console.error('Error loading contributions:', error);
       }
     }
-    loadContributions();
-  }, [filerId, filer, currentPage, getDateRange]);
-
-  // Reset page when filter changes
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [datePreset, customDateFrom, customDateTo]);
+    loadContributionsPage();
+  }, [filerId, filer, currentPage, filtersApplied, getDateRange, pageSize]);
 
   // Format date range for display
   const getDateRangeLabel = () => {
@@ -312,6 +321,13 @@ export default function CandidateProfile({ filerId }: CandidateProfileProps) {
                   />
                 </div>
               )}
+              <button
+                onClick={applyFilters}
+                disabled={filterLoading}
+                className="px-4 py-1.5 text-sm font-medium bg-texas-blue text-white rounded-lg hover:bg-blue-900 disabled:opacity-50 transition-colors"
+              >
+                {filterLoading ? 'Loading...' : 'Apply Filters'}
+              </button>
             </div>
           </div>
 
