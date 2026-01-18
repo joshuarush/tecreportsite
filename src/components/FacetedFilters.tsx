@@ -8,6 +8,7 @@ export interface FilterValues {
   contributorType: string;
   party: string;
   officeType: string;
+  filerType: string;
 }
 
 interface FacetedFiltersProps {
@@ -45,6 +46,14 @@ const OFFICE_TYPES = [
   { value: 'AG_COMM', label: 'Agriculture Commissioner' },
 ];
 
+const FILER_TYPES = [
+  { value: '', label: 'All Types' },
+  { value: 'CEC', label: 'CEC' },
+  { value: 'COH', label: 'COH' },
+  { value: 'DCE', label: 'DCE' },
+  { value: 'GPAC', label: 'GPAC' },
+];
+
 export default function FacetedFilters({
   filters,
   onChange,
@@ -66,6 +75,7 @@ export default function FacetedFilters({
       contributorType: '',
       party: '',
       officeType: '',
+      filerType: '',
     });
   };
 
@@ -198,6 +208,23 @@ export default function FacetedFilters({
                 {OFFICE_TYPES.map((office) => (
                   <option key={office.value} value={office.value}>
                     {office.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className={!isExpanded ? 'hidden md:block' : ''}>
+              <label className="block text-sm font-medium text-slate-700 mb-1">
+                Filer Type
+              </label>
+              <select
+                value={filters.filerType}
+                onChange={(e) => handleChange('filerType', e.target.value)}
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-texas-blue focus:border-transparent bg-white"
+              >
+                {FILER_TYPES.map((type) => (
+                  <option key={type.value} value={type.value}>
+                    {type.label}
                   </option>
                 ))}
               </select>
