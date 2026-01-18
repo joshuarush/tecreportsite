@@ -43,6 +43,21 @@ interface AdvancedFilters {
   // Expenditure specific
   expenditureCategory: string;
   payeeName: string;
+
+  // Aggregation
+  groupByDonor: boolean;
+  minContributions: string;
+  minTotalAmount: string;
+}
+
+// Type for aggregated donor results
+interface AggregatedDonor {
+  contributor_name: string;
+  num_contributions: number;
+  total_amount: number;
+  avg_amount: number;
+  first_date: number;
+  last_date: number;
 }
 
 const DEFAULT_FILTERS: AdvancedFilters = {
@@ -67,6 +82,9 @@ const DEFAULT_FILTERS: AdvancedFilters = {
   district: '',
   expenditureCategory: '',
   payeeName: '',
+  groupByDonor: false,
+  minContributions: '',
+  minTotalAmount: '',
 };
 
 const CONTRIBUTOR_TYPES = [
@@ -191,6 +209,7 @@ const EXPENDITURE_CATEGORIES = [
 export default function AdvancedSearch() {
   const [filters, setFilters] = useState<AdvancedFilters>(DEFAULT_FILTERS);
   const [results, setResults] = useState<(Contribution | Expenditure)[]>([]);
+  const [aggregatedResults, setAggregatedResults] = useState<AggregatedDonor[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [currentPage, setCurrentPage] = useState(1);
   const [loading, setLoading] = useState(false);
@@ -204,6 +223,7 @@ export default function AdvancedSearch() {
     contributor: false,
     filer: false,
     expenditure: false,
+    aggregation: false,
   });
   const pageSize = 50;
 
@@ -218,6 +238,7 @@ export default function AdvancedSearch() {
   const clearFilters = () => {
     setFilters(DEFAULT_FILTERS);
     setResults([]);
+    setAggregatedResults([]);
     setTotalCount(0);
     setHasSearched(false);
   };
@@ -239,81 +260,152 @@ export default function AdvancedSearch() {
       if (transactionType === 'contributions' || transactionType === 'both') {
         const conditions: string[] = [];
 
+        // Determine if we need to join with filers table (for party, filerType, officeType filters)
+        const needsJoin = filters.party || filters.filerType || filters.officeType;
+        const tableAlias = needsJoin ? 'c' : '';
+        const colPrefix = needsJoin ? 'c.' : '';
+
         // Apply name filter
         if (filters.name) {
           const escapedName = escapeSql(filters.name);
           if (filters.nameSearchType === 'exact') {
-            conditions.push(`contributor_name ILIKE '${escapedName}'`);
+            conditions.push(`${colPrefix}contributor_name ILIKE '${escapedName}'`);
           } else if (filters.nameSearchType === 'starts_with') {
-            conditions.push(`contributor_name ILIKE '${escapedName}%'`);
+            conditions.push(`${colPrefix}contributor_name ILIKE '${escapedName}%'`);
           } else {
-            conditions.push(`contributor_name ILIKE '%${escapedName}%'`);
+            conditions.push(`${colPrefix}contributor_name ILIKE '%${escapedName}%'`);
           }
         }
 
         // Apply amount filters
         if (filters.amountMin) {
-          conditions.push(`amount >= ${parseFloat(filters.amountMin)}`);
+          conditions.push(`${colPrefix}amount >= ${parseFloat(filters.amountMin)}`);
         }
         if (filters.amountMax) {
-          conditions.push(`amount <= ${parseFloat(filters.amountMax)}`);
+          conditions.push(`${colPrefix}amount <= ${parseFloat(filters.amountMax)}`);
         }
 
         // Apply date filters (convert YYYY-MM-DD to YYYYMMDD integer)
         if (filters.dateFrom) {
-          conditions.push(`date >= ${dateToInt(filters.dateFrom)}`);
+          conditions.push(`${colPrefix}date >= ${dateToInt(filters.dateFrom)}`);
         }
         if (filters.dateTo) {
-          conditions.push(`date <= ${dateToInt(filters.dateTo)}`);
+          conditions.push(`${colPrefix}date <= ${dateToInt(filters.dateTo)}`);
         }
 
         // Apply location filters
         if (filters.city) {
-          conditions.push(`contributor_city ILIKE '%${escapeSql(filters.city)}%'`);
+          conditions.push(`${colPrefix}contributor_city ILIKE '%${escapeSql(filters.city)}%'`);
         }
         if (filters.state) {
           // Handle both abbreviation and full name (e.g., TX and TEXAS)
           if (filters.state === 'TX') {
-            conditions.push(`(contributor_state = 'TX' OR contributor_state = 'TEXAS' OR contributor_state ILIKE 'Texas')`);
+            conditions.push(`(${colPrefix}contributor_state = 'TX' OR ${colPrefix}contributor_state = 'TEXAS' OR ${colPrefix}contributor_state ILIKE 'Texas')`);
           } else {
-            conditions.push(`contributor_state = '${escapeSql(filters.state)}'`);
+            conditions.push(`${colPrefix}contributor_state = '${escapeSql(filters.state)}'`);
           }
         }
 
         // Apply contributor filters
         if (filters.employer) {
-          conditions.push(`contributor_employer ILIKE '%${escapeSql(filters.employer)}%'`);
+          conditions.push(`${colPrefix}contributor_employer ILIKE '%${escapeSql(filters.employer)}%'`);
         }
         if (filters.occupation) {
-          conditions.push(`contributor_occupation ILIKE '%${escapeSql(filters.occupation)}%'`);
+          conditions.push(`${colPrefix}contributor_occupation ILIKE '%${escapeSql(filters.occupation)}%'`);
         }
         if (filters.contributorType) {
-          conditions.push(`contributor_type = '${escapeSql(filters.contributorType)}'`);
+          conditions.push(`${colPrefix}contributor_type = '${escapeSql(filters.contributorType)}'`);
         }
 
         // Apply filer name filter
         if (filters.filerName) {
-          conditions.push(`filer_name ILIKE '%${escapeSql(filters.filerName)}%'`);
+          conditions.push(`${colPrefix}filer_name ILIKE '%${escapeSql(filters.filerName)}%'`);
+        }
+
+        // Apply filer-level filters (require join)
+        if (filters.party) {
+          conditions.push(`f.party = '${escapeSql(filters.party)}'`);
+        }
+        if (filters.filerType) {
+          conditions.push(`f.type = '${escapeSql(filters.filerType)}'`);
+        }
+        if (filters.officeType) {
+          conditions.push(`f.office_sought ILIKE '%${escapeSql(filters.officeType)}%'`);
         }
 
         const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
-        // Get count
-        const countResult = await duckdbQuery<{ count: number }>(`
-          SELECT COUNT(*) as count FROM contributions ${whereClause}
-        `);
-        const count = Number(countResult[0]?.count || 0);
+        // Build the FROM clause
+        const fromClause = needsJoin
+          ? `contributions c JOIN filers f ON c.filer_id = f.id`
+          : `contributions`;
 
-        // Get data
-        const data = await duckdbQuery<Contribution>(`
-          SELECT * FROM contributions
-          ${whereClause}
-          ORDER BY date DESC
-          LIMIT ${pageSize} OFFSET ${offset}
-        `);
+        // Handle aggregated vs non-aggregated results
+        if (filters.groupByDonor) {
+          // Build HAVING clause for aggregate filters
+          const havingConditions: string[] = [];
+          if (filters.minContributions) {
+            havingConditions.push(`COUNT(*) > ${parseInt(filters.minContributions, 10)}`);
+          }
+          if (filters.minTotalAmount) {
+            havingConditions.push(`SUM(${colPrefix}amount) >= ${parseFloat(filters.minTotalAmount)}`);
+          }
+          const havingClause = havingConditions.length > 0 ? `HAVING ${havingConditions.join(' AND ')}` : '';
 
-        setResults(data || []);
-        setTotalCount(count);
+          // Get count of unique donors matching criteria
+          const countResult = await duckdbQuery<{ count: number }>(`
+            SELECT COUNT(*) as count FROM (
+              SELECT ${colPrefix}contributor_name
+              FROM ${fromClause}
+              ${whereClause}
+              GROUP BY ${colPrefix}contributor_name
+              ${havingClause}
+            ) subquery
+          `);
+          const count = Number(countResult[0]?.count || 0);
+
+          // Get aggregated donor data
+          const data = await duckdbQuery<AggregatedDonor>(`
+            SELECT
+              ${colPrefix}contributor_name,
+              COUNT(*) as num_contributions,
+              SUM(${colPrefix}amount) as total_amount,
+              AVG(${colPrefix}amount) as avg_amount,
+              MIN(${colPrefix}date) as first_date,
+              MAX(${colPrefix}date) as last_date
+            FROM ${fromClause}
+            ${whereClause}
+            GROUP BY ${colPrefix}contributor_name
+            ${havingClause}
+            ORDER BY num_contributions DESC, total_amount DESC
+            LIMIT ${pageSize} OFFSET ${offset}
+          `);
+
+          setAggregatedResults(data || []);
+          setResults([]);
+          setTotalCount(count);
+        } else {
+          // Non-aggregated: get individual contributions
+          setAggregatedResults([]);
+
+          // Get count
+          const countResult = await duckdbQuery<{ count: number }>(`
+            SELECT COUNT(*) as count FROM ${fromClause} ${whereClause}
+          `);
+          const count = Number(countResult[0]?.count || 0);
+
+          // Get data - need to select from contributions with proper column names
+          const selectCols = needsJoin ? 'c.*' : '*';
+          const data = await duckdbQuery<Contribution>(`
+            SELECT ${selectCols} FROM ${fromClause}
+            ${whereClause}
+            ORDER BY ${colPrefix}date DESC
+            LIMIT ${pageSize} OFFSET ${offset}
+          `);
+
+          setResults(data || []);
+          setTotalCount(count);
+        }
       }
 
       if (transactionType === 'expenditures') {
@@ -625,6 +717,16 @@ export default function AdvancedSearch() {
                     <button
                       type="button"
                       onClick={() => {
+                        updateFilter('dateFrom', '2025-01-01');
+                        updateFilter('dateTo', '2025-12-31');
+                      }}
+                      className="px-2 py-1 text-xs bg-slate-100 hover:bg-slate-200 rounded"
+                    >
+                      2025
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
                         updateFilter('dateFrom', '2024-01-01');
                         updateFilter('dateTo', '2024-12-31');
                       }}
@@ -808,6 +910,85 @@ export default function AdvancedSearch() {
                 )}
               </div>
             )}
+
+            {/* Aggregation / Group by Donor (only for contributions) */}
+            {filters.transactionType === 'contributions' && (
+              <div>
+                <SectionHeader title="Group & Aggregate" section="aggregation" icon="📈" />
+                {expandedSections.aggregation && (
+                  <div className="p-4 space-y-3 border border-slate-200 rounded-lg mt-2">
+                    <div className="flex items-center gap-3">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={filters.groupByDonor}
+                          onChange={(e) => updateFilter('groupByDonor', e.target.checked)}
+                          className="w-4 h-4 text-texas-blue rounded"
+                        />
+                        <span className="text-sm font-medium text-slate-700">Group by Donor</span>
+                      </label>
+                    </div>
+                    <p className="text-xs text-slate-500">
+                      Aggregate contributions by donor name to see total amounts and contribution counts.
+                    </p>
+
+                    {filters.groupByDonor && (
+                      <div className="space-y-3 pt-2 border-t border-slate-200">
+                        <div>
+                          <label className="block text-sm font-medium text-slate-700 mb-1">
+                            Min # of Contributions (more than)
+                          </label>
+                          <input
+                            type="number"
+                            value={filters.minContributions}
+                            onChange={(e) => updateFilter('minContributions', e.target.value)}
+                            placeholder="e.g., 5"
+                            min="0"
+                            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-texas-blue"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-slate-700 mb-1">
+                            Min Total Amount
+                          </label>
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            value={filters.minTotalAmount}
+                            onChange={(e) => updateFilter('minTotalAmount', e.target.value)}
+                            placeholder="e.g., 10000"
+                            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-texas-blue"
+                          />
+                        </div>
+                        <div className="flex gap-2 flex-wrap">
+                          <button
+                            type="button"
+                            onClick={() => { updateFilter('minContributions', '5'); updateFilter('minTotalAmount', ''); }}
+                            className="px-2 py-1 text-xs bg-slate-100 hover:bg-slate-200 rounded"
+                          >
+                            5+ donations
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => { updateFilter('minContributions', ''); updateFilter('minTotalAmount', '10000'); }}
+                            className="px-2 py-1 text-xs bg-slate-100 hover:bg-slate-200 rounded"
+                          >
+                            $10K+ total
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => { updateFilter('minContributions', ''); updateFilter('minTotalAmount', '100000'); }}
+                            className="px-2 py-1 text-xs bg-slate-100 hover:bg-slate-200 rounded"
+                          >
+                            $100K+ total
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Action Buttons */}
@@ -853,11 +1034,75 @@ export default function AdvancedSearch() {
         {/* Results Table */}
         {hasSearched && (
           <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-            <ResultsTable
-              type={filters.transactionType === 'expenditures' ? 'expenditures' : 'contributions'}
-              data={results as any}
-              loading={loading}
-            />
+            {filters.groupByDonor && filters.transactionType === 'contributions' ? (
+              /* Aggregated Donors Table */
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-slate-200 text-left">
+                      <th className="px-4 py-3 text-sm font-semibold text-slate-900">Donor Name</th>
+                      <th className="px-4 py-3 text-sm font-semibold text-slate-900 text-right"># Contributions</th>
+                      <th className="px-4 py-3 text-sm font-semibold text-slate-900 text-right">Total Amount</th>
+                      <th className="px-4 py-3 text-sm font-semibold text-slate-900 text-right">Avg Amount</th>
+                      <th className="px-4 py-3 text-sm font-semibold text-slate-900 hidden md:table-cell">Date Range</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {loading ? (
+                      <>
+                        {[1, 2, 3].map((i) => (
+                          <tr key={i} className="animate-pulse">
+                            {[1, 2, 3, 4, 5].map((j) => (
+                              <td key={j} className="px-4 py-3">
+                                <div className="h-4 bg-slate-200 rounded w-3/4"></div>
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </>
+                    ) : aggregatedResults.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="px-4 py-12 text-center text-slate-500">
+                          No donors found matching your criteria. Try adjusting your filters.
+                        </td>
+                      </tr>
+                    ) : (
+                      aggregatedResults.map((donor, idx) => (
+                        <tr key={`${donor.contributor_name}-${idx}`} className="hover:bg-slate-50">
+                          <td className="px-4 py-3">
+                            <div className="font-medium text-slate-900 text-sm">
+                              {donor.contributor_name || 'Unknown'}
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            <span className="font-medium text-texas-blue text-sm">
+                              {donor.num_contributions.toLocaleString()}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            <span className="font-medium text-green-700 text-sm">
+                              {formatCurrency(donor.total_amount)}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-right text-sm text-slate-600">
+                            {formatCurrency(donor.avg_amount)}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-slate-600 hidden md:table-cell">
+                            {formatDate(donor.first_date)} - {formatDate(donor.last_date)}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <ResultsTable
+                type={filters.transactionType === 'expenditures' ? 'expenditures' : 'contributions'}
+                data={results as any}
+                loading={loading}
+              />
+            )}
           </div>
         )}
 
