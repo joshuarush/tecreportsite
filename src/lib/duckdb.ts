@@ -513,6 +513,58 @@ export async function searchExpenditures(
   };
 }
 
+// Latest report data for a filer
+export interface LatestReport {
+  reportId: number;
+  formType: string;
+  periodStart: string;
+  periodEnd: string;
+  filedDate: number;
+  totalContributions: number;
+  totalExpenditures: number;
+  cashOnHand: number | null;
+  loanBalance: number | null;
+}
+
+// Get the most recent report for a filer
+export async function getLatestReport(filerId: string): Promise<LatestReport | null> {
+  await initDuckDB();
+
+  const results = await query<{
+    report_id: number;
+    form_type: string;
+    period_start: string;
+    period_end: string;
+    filed_date: number;
+    total_contributions: number;
+    total_expenditures: number;
+    cash_on_hand: number | null;
+    loan_balance: number | null;
+  }>(`
+    SELECT report_id, form_type, period_start, period_end, filed_date,
+           total_contributions, total_expenditures, cash_on_hand, loan_balance
+    FROM reports
+    WHERE filer_id = '${escapeSql(filerId)}'
+    ORDER BY period_end DESC, filed_date DESC
+    LIMIT 1
+  `);
+
+  if (results.length === 0) return null;
+
+  const r = results[0];
+  return {
+    reportId: r.report_id,
+    formType: r.form_type || '',
+    periodStart: r.period_start || '',
+    periodEnd: r.period_end || '',
+    filedDate: r.filed_date || 0,
+    totalContributions: Number(r.total_contributions || 0),
+    totalExpenditures: Number(r.total_expenditures || 0),
+    cashOnHand: r.cash_on_hand != null ? Number(r.cash_on_hand) : null,
+    loanBalance: r.loan_balance != null ? Number(r.loan_balance) : null,
+  };
+}
+
 // Get filer by ID with stats
 export async function getFilerById(filerId: string): Promise<{
   filer: Filer | null;
@@ -701,6 +753,60 @@ export async function getTimelineData(
       cashOnHand: cumulativeContrib - cumulativeExpend,
     };
   });
+}
+
+// Report-based timeline (uses actual reported totals and COH)
+export interface ReportTimelinePoint {
+  date: string;
+  periodStart: string;
+  periodEnd: string;
+  contributions: number;
+  expenditures: number;
+  cashOnHand: number | null;
+  loanBalance: number | null;
+}
+
+export async function getReportTimeline(
+  filerId: string,
+  dateFrom?: string,
+  dateTo?: string
+): Promise<ReportTimelinePoint[]> {
+  await initDuckDB();
+
+  const conditions = [`filer_id = '${escapeSql(filerId)}'`];
+  if (dateFrom) {
+    const fromInt = dateToInt(dateFrom);
+    conditions.push(`CAST(period_end AS INTEGER) >= ${fromInt}`);
+  }
+  if (dateTo) {
+    const toInt = dateToInt(dateTo);
+    conditions.push(`CAST(period_end AS INTEGER) <= ${toInt}`);
+  }
+
+  const results = await query<{
+    period_start: string;
+    period_end: string;
+    total_contributions: number;
+    total_expenditures: number;
+    cash_on_hand: number | null;
+    loan_balance: number | null;
+  }>(`
+    SELECT period_start, period_end, total_contributions, total_expenditures,
+           cash_on_hand, loan_balance
+    FROM reports
+    WHERE ${conditions.join(' AND ')}
+    ORDER BY period_end ASC
+  `);
+
+  return results.map(r => ({
+    date: r.period_end || '',
+    periodStart: r.period_start || '',
+    periodEnd: r.period_end || '',
+    contributions: Number(r.total_contributions || 0),
+    expenditures: Number(r.total_expenditures || 0),
+    cashOnHand: r.cash_on_hand != null ? Number(r.cash_on_hand) : null,
+    loanBalance: r.loan_balance != null ? Number(r.loan_balance) : null,
+  }));
 }
 
 // Get top donors with date filtering
