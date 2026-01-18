@@ -1,7 +1,7 @@
 import * as duckdb from '@duckdb/duckdb-wasm';
 
-// R2 bucket URL
-const R2_BASE = 'https://pub-2faac7f0bea6427997fbef200382b3a2.r2.dev';
+// R2 bucket URL (custom domain with CDN caching)
+const R2_BASE = 'https://tec-data.joshuaru.sh';
 
 // Singleton instances
 let db: duckdb.AsyncDuckDB | null = null;
