@@ -1,6 +1,90 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { query as duckdbQuery, formatCurrency, formatDate, waitForInit } from '../lib/duckdb';
 import DatabaseLoader from './DatabaseLoader';
+
+// Sort types for results table
+type SortDirection = 'asc' | 'desc' | null;
+
+interface SortState {
+  column: string | null;
+  direction: SortDirection;
+}
+
+// Sort indicator arrow component
+function SortIndicator({ direction }: { direction: SortDirection }) {
+  if (!direction) {
+    return (
+      <svg className="w-4 h-4 text-slate-400 ml-1 inline-block" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
+      </svg>
+    );
+  }
+  return direction === 'asc' ? (
+    <svg className="w-4 h-4 text-texas-blue ml-1 inline-block" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+    </svg>
+  ) : (
+    <svg className="w-4 h-4 text-texas-blue ml-1 inline-block" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+    </svg>
+  );
+}
+
+// Sortable header component for QueryBuilder
+function QBSortableHeader({
+  label,
+  column,
+  sortState,
+  onSort,
+  className = ''
+}: {
+  label: string;
+  column: string;
+  sortState: SortState;
+  onSort: (column: string) => void;
+  className?: string;
+}) {
+  const isActive = sortState.column === column;
+  return (
+    <th
+      className={`px-4 py-3 text-sm font-semibold text-slate-900 cursor-pointer hover:bg-slate-100 select-none transition-colors ${className}`}
+      onClick={() => onSort(column)}
+    >
+      <span className="flex items-center">
+        {label}
+        <SortIndicator direction={isActive ? sortState.direction : null} />
+      </span>
+    </th>
+  );
+}
+
+// Generic sort function for QueryBuilder results
+function sortResults<T>(data: T[], sortState: SortState): T[] {
+  if (!sortState.column || !sortState.direction) return data;
+
+  return [...data].sort((a, b) => {
+    const aVal = (a as any)[sortState.column!];
+    const bVal = (b as any)[sortState.column!];
+
+    // Handle null/undefined
+    if (aVal == null && bVal == null) return 0;
+    if (aVal == null) return sortState.direction === 'asc' ? -1 : 1;
+    if (bVal == null) return sortState.direction === 'asc' ? 1 : -1;
+
+    // Handle numbers (including BigInt from DuckDB)
+    const aNum = typeof aVal === 'bigint' ? Number(aVal) : aVal;
+    const bNum = typeof bVal === 'bigint' ? Number(bVal) : bVal;
+    if (typeof aNum === 'number' && typeof bNum === 'number') {
+      return sortState.direction === 'asc' ? aNum - bNum : bNum - aNum;
+    }
+
+    // Handle strings (case-insensitive)
+    const aStr = String(aVal).toLowerCase();
+    const bStr = String(bVal).toLowerCase();
+    const comparison = aStr.localeCompare(bStr);
+    return sortState.direction === 'asc' ? comparison : -comparison;
+  });
+}
 
 // Query condition types
 type Operator = 'equals' | 'not_equals' | 'contains' | 'not_contains' | 'starts_with' | 'ends_with' |
@@ -161,6 +245,23 @@ export default function QueryBuilder() {
   const [error, setError] = useState<string | null>(null);
   const [queryPreview, setQueryPreview] = useState('');
   const [executionTime, setExecutionTime] = useState<number | null>(null);
+  const [sortState, setSortState] = useState<SortState>({ column: null, direction: null });
+
+  const handleSort = (column: string) => {
+    setSortState(prev => {
+      if (prev.column !== column) {
+        return { column, direction: 'asc' };
+      }
+      if (prev.direction === 'asc') {
+        return { column, direction: 'desc' };
+      }
+      return { column: null, direction: null };
+    });
+  };
+
+  // Memoize sorted results
+  const sortedResults = useMemo(() => sortResults(results, sortState), [results, sortState]);
+  const sortedAggregatedResults = useMemo(() => sortResults(aggregatedResults, sortState), [aggregatedResults, sortState]);
 
   const fields = FIELDS[dataSource];
 
@@ -812,31 +913,41 @@ export default function QueryBuilder() {
                   {aggregation.enabled && aggregatedResults.length > 0 ? (
                     <>
                       {aggregation.groupBy.map(field => (
-                        <th key={field} className="px-4 py-3 text-left text-sm font-semibold text-slate-900">
-                          {fields.find(f => f.value === field)?.label || field}
-                        </th>
+                        <QBSortableHeader
+                          key={field}
+                          label={fields.find(f => f.value === field)?.label || field}
+                          column={field}
+                          sortState={sortState}
+                          onSort={handleSort}
+                          className="text-left"
+                        />
                       ))}
                       {aggregation.metrics.includes('sum') && (
-                        <th className="px-4 py-3 text-right text-sm font-semibold text-slate-900">Total Amount</th>
+                        <QBSortableHeader label="Total Amount" column="_sum" sortState={sortState} onSort={handleSort} className="text-right" />
                       )}
                       {aggregation.metrics.includes('count') && (
-                        <th className="px-4 py-3 text-right text-sm font-semibold text-slate-900">Count</th>
+                        <QBSortableHeader label="Count" column="_count" sortState={sortState} onSort={handleSort} className="text-right" />
                       )}
                       {aggregation.metrics.includes('avg') && (
-                        <th className="px-4 py-3 text-right text-sm font-semibold text-slate-900">Average</th>
+                        <QBSortableHeader label="Average" column="_avg" sortState={sortState} onSort={handleSort} className="text-right" />
                       )}
                     </>
                   ) : results.length > 0 && (
                     Object.keys(results[0]).filter(k => !k.startsWith('_')).slice(0, 8).map(key => (
-                      <th key={key} className="px-4 py-3 text-left text-sm font-semibold text-slate-900">
-                        {fields.find(f => f.value === key)?.label || key}
-                      </th>
+                      <QBSortableHeader
+                        key={key}
+                        label={fields.find(f => f.value === key)?.label || key}
+                        column={key}
+                        sortState={sortState}
+                        onSort={handleSort}
+                        className="text-left"
+                      />
                     ))
                   )}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {aggregation.enabled ? aggregatedResults.map((row, i) => (
+                {aggregation.enabled ? sortedAggregatedResults.map((row, i) => (
                   <tr key={i} className="hover:bg-slate-50">
                     {aggregation.groupBy.map(field => (
                       <td key={field} className="px-4 py-3 text-sm text-slate-900">
@@ -859,7 +970,7 @@ export default function QueryBuilder() {
                       </td>
                     )}
                   </tr>
-                )) : results.map((row, i) => (
+                )) : sortedResults.map((row, i) => (
                   <tr key={i} className="hover:bg-slate-50">
                     {Object.entries(row).filter(([k]) => !k.startsWith('_')).slice(0, 8).map(([key, val]) => (
                       <td key={key} className="px-4 py-3 text-sm text-slate-900">

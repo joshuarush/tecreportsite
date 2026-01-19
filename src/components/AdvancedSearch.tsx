@@ -1,8 +1,92 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import ResultsTable from './ResultsTable';
 import Pagination from './Pagination';
 import DatabaseLoader from './DatabaseLoader';
 import { query as duckdbQuery, waitForInit, formatCurrency, formatDate, type Contribution, type Expenditure } from '../lib/duckdb';
+
+// Sort types for aggregated table
+type SortDirection = 'asc' | 'desc' | null;
+
+interface SortState {
+  column: string | null;
+  direction: SortDirection;
+}
+
+// Sort indicator arrow component
+function SortIndicator({ direction }: { direction: SortDirection }) {
+  if (!direction) {
+    return (
+      <svg className="w-4 h-4 text-slate-300 ml-1 inline-block" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
+      </svg>
+    );
+  }
+  return direction === 'asc' ? (
+    <svg className="w-4 h-4 text-texas-blue ml-1 inline-block" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+    </svg>
+  ) : (
+    <svg className="w-4 h-4 text-texas-blue ml-1 inline-block" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+    </svg>
+  );
+}
+
+// Sortable header component
+function SortableHeader({
+  label,
+  column,
+  sortState,
+  onSort,
+  className = ''
+}: {
+  label: string;
+  column: string;
+  sortState: SortState;
+  onSort: (column: string) => void;
+  className?: string;
+}) {
+  const isActive = sortState.column === column;
+  return (
+    <th
+      className={`px-4 py-3 text-sm font-semibold text-slate-900 cursor-pointer hover:bg-slate-100 select-none transition-colors ${className}`}
+      onClick={() => onSort(column)}
+    >
+      <span className="flex items-center">
+        {label}
+        <SortIndicator direction={isActive ? sortState.direction : null} />
+      </span>
+    </th>
+  );
+}
+
+// Generic sort function
+function sortData<T>(data: T[], sortState: SortState): T[] {
+  if (!sortState.column || !sortState.direction) return data;
+
+  return [...data].sort((a, b) => {
+    const aVal = (a as any)[sortState.column!];
+    const bVal = (b as any)[sortState.column!];
+
+    // Handle null/undefined
+    if (aVal == null && bVal == null) return 0;
+    if (aVal == null) return sortState.direction === 'asc' ? -1 : 1;
+    if (bVal == null) return sortState.direction === 'asc' ? 1 : -1;
+
+    // Handle numbers (including BigInt from DuckDB)
+    const aNum = typeof aVal === 'bigint' ? Number(aVal) : aVal;
+    const bNum = typeof bVal === 'bigint' ? Number(bVal) : bVal;
+    if (typeof aNum === 'number' && typeof bNum === 'number') {
+      return sortState.direction === 'asc' ? aNum - bNum : bNum - aNum;
+    }
+
+    // Handle strings (case-insensitive)
+    const aStr = String(aVal).toLowerCase();
+    const bStr = String(bVal).toLowerCase();
+    const comparison = aStr.localeCompare(bStr);
+    return sortState.direction === 'asc' ? comparison : -comparison;
+  });
+}
 
 type TransactionType = 'contributions' | 'expenditures' | 'both';
 
@@ -215,6 +299,7 @@ export default function AdvancedSearch() {
   const [loading, setLoading] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
   const [autoSearch, setAutoSearch] = useState(false);
+  const [sortState, setSortState] = useState<SortState>({ column: null, direction: null });
   const [expandedSections, setExpandedSections] = useState({
     transaction: true,
     name: true,
@@ -227,6 +312,21 @@ export default function AdvancedSearch() {
     aggregation: false,
   });
   const pageSize = 50;
+
+  const handleSort = (column: string) => {
+    setSortState(prev => {
+      if (prev.column !== column) {
+        return { column, direction: 'asc' };
+      }
+      if (prev.direction === 'asc') {
+        return { column, direction: 'desc' };
+      }
+      return { column: null, direction: null };
+    });
+  };
+
+  // Memoize sorted aggregated results
+  const sortedAggregatedResults = useMemo(() => sortData(aggregatedResults, sortState), [aggregatedResults, sortState]);
 
   // Parse URL parameters on mount
   useEffect(() => {
@@ -1130,11 +1230,11 @@ export default function AdvancedSearch() {
                 <table className="w-full">
                   <thead>
                     <tr className="border-b border-slate-200 text-left">
-                      <th className="px-4 py-3 text-sm font-semibold text-slate-900">Donor Name</th>
-                      <th className="px-4 py-3 text-sm font-semibold text-slate-900 text-right"># Contributions</th>
-                      <th className="px-4 py-3 text-sm font-semibold text-slate-900 text-right">Total Amount</th>
-                      <th className="px-4 py-3 text-sm font-semibold text-slate-900 text-right">Avg Amount</th>
-                      <th className="px-4 py-3 text-sm font-semibold text-slate-900 hidden md:table-cell">Date Range</th>
+                      <SortableHeader label="Donor Name" column="contributor_name" sortState={sortState} onSort={handleSort} />
+                      <SortableHeader label="# Contributions" column="num_contributions" sortState={sortState} onSort={handleSort} className="text-right" />
+                      <SortableHeader label="Total Amount" column="total_amount" sortState={sortState} onSort={handleSort} className="text-right" />
+                      <SortableHeader label="Avg Amount" column="avg_amount" sortState={sortState} onSort={handleSort} className="text-right" />
+                      <SortableHeader label="Date Range" column="first_date" sortState={sortState} onSort={handleSort} className="hidden md:table-cell" />
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -1150,14 +1250,14 @@ export default function AdvancedSearch() {
                           </tr>
                         ))}
                       </>
-                    ) : aggregatedResults.length === 0 ? (
+                    ) : sortedAggregatedResults.length === 0 ? (
                       <tr>
                         <td colSpan={5} className="px-4 py-12 text-center text-slate-500">
                           No donors found matching your criteria. Try adjusting your filters.
                         </td>
                       </tr>
                     ) : (
-                      aggregatedResults.map((donor, idx) => (
+                      sortedAggregatedResults.map((donor, idx) => (
                         <tr key={`${donor.contributor_name}-${idx}`} className="hover:bg-slate-50">
                           <td className="px-4 py-3">
                             <a

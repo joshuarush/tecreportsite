@@ -1,154 +1,93 @@
-# CLAUDE.md - Texas Campaign Finance Search
+# CLAUDE.md
 
-This file provides guidance to Claude Code when working with this codebase.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Project Overview
 
 A searchable web interface for Texas Ethics Commission (TEC) campaign finance data. Allows users to search contributions, expenditures, filers, and reports with advanced boolean query building capabilities.
 
-**Live URL:** https://tec.joshuaru.sh (also https://tec-campaign-finance.pages.dev)
+**Live URL:** https://tec.joshuaru.sh
 
 ## Tech Stack
 
 - **Frontend:** Astro 5 + React 19 + Tailwind CSS v4
-- **Database:** Supabase (PostgreSQL with pg_trgm for fuzzy search)
+- **Database:** DuckDB-WASM (in-browser SQL engine)
+- **Data Storage:** Parquet files on Cloudflare R2 CDN (`tec-data.joshuaru.sh`)
+- **Caching:** Browser IndexedDB for persistent local storage
 - **Hosting:** Cloudflare Pages
 - **Charts:** Recharts
 
 ## Commands
 
 ```bash
-# Development
 bun run dev          # Start dev server at localhost:4321
-
-# Build & Deploy
-bun run build        # Build static site to dist/
+bun run build        # Build static site (astro check + astro build)
 bun run preview      # Preview production build locally
 bunx wrangler pages deploy dist  # Deploy to Cloudflare Pages
-
-# Database
-bunx supabase db push           # Push migrations to Supabase
-bunx supabase db diff           # Show diff between local and remote
-bunx supabase migration new X   # Create new migration
 ```
 
-## Project Structure
+## Architecture
 
-```
-src/
-├── components/           # React components (client-side interactive)
-│   ├── QueryBuilder.tsx  # Boolean query builder with AND/OR groups
-│   ├── AdvancedSearch.tsx # Multi-filter search form
-│   ├── ContributorSearch.tsx
-│   ├── CandidateSearch.tsx
-│   ├── ResultsTable.tsx
-│   ├── TopDonorsChart.tsx
-│   └── ...
-├── layouts/
-│   └── BaseLayout.astro  # Main layout with header/footer
-├── lib/
-│   ├── supabase.ts       # Supabase client + type definitions
-│   └── search.ts         # Search functions and utilities
-├── pages/
-│   ├── index.astro       # Home page
-│   ├── advanced.astro    # Advanced search page
-│   ├── query-builder.astro # Boolean query builder page
-│   ├── candidate.astro   # Candidate profile page (?id=XXX)
-│   └── search/
-│       ├── contributors.astro
-│       ├── candidates.astro
-│       └── transactions.astro
-└── styles/
-    └── global.css        # Tailwind v4 with custom theme
+### Client-Side Database
 
-scripts/                  # Python data import scripts
-├── import_filers.py
-├── import_contributions.py
-├── import_expenditures.py
-└── import_reports.py
+The app uses DuckDB-WASM to run SQL queries entirely in the browser. No backend server is needed for data queries.
 
-supabase/
-└── migrations/           # Database migrations
-    ├── 001_initial_schema.sql
-    └── 002_drop_fk_constraints.sql
-```
+**Data Flow:**
+1. On first visit, Parquet files are downloaded from R2 CDN (~290MB total)
+2. Files are cached in IndexedDB for future visits
+3. DuckDB loads the cached files and creates in-memory tables
+4. All queries run locally with zero network latency
 
-## Environment Variables
+**Parquet Files** (at `https://tec-data.joshuaru.sh`):
+- `filers.parquet` (380 KB) - ~2,800 candidate/PAC records
+- `reports.parquet` (7.5 MB) - ~95K campaign finance reports
+- `expenditures.parquet` (86 MB) - ~1.5M spending transactions
+- `contributions_2020.parquet` (210 MB) - ~8-10M donation records (2020+)
 
-Create `.env` in project root:
+### Key Files
 
-```
-PUBLIC_SUPABASE_URL=https://tnrcsazdmdgurjeawamd.supabase.co
-PUBLIC_SUPABASE_ANON_KEY=your-anon-key
-```
+**`src/lib/duckdb.ts`** - Main database client with all query functions:
+- `query<T>(sql)` - Execute raw SQL
+- `searchContributions/searchFilers/searchExpenditures` - Search with filters
+- `getFilerById`, `getLatestReport`, `getTopDonors` - Candidate profile data
+- `getTimelineData`, `getReportTimeline` - Chart data aggregations
+- `waitForInit()` - Promise that resolves when DB is ready
+- `clearCache()`, `getCacheInfo()` - Cache management
 
-The Supabase client is lazy-initialized to avoid build-time errors when env vars aren't present.
+**`src/lib/parquet-cache.ts`** - IndexedDB caching:
+- `downloadWithProgress(url, onProgress)` - Fetch with progress callbacks
+- `getCachedFile/setCachedFile` - Retrieve/store from browser cache
 
-## Database Schema
+**`src/lib/supabase.ts`** - Legacy client for party_tags table only (user-submitted party affiliations)
 
-Four main tables, all with Row Level Security allowing anonymous read access:
+### Date Format
 
-- **filers** - Candidates, PACs, and committees
-- **contributions** - Donations received (8-10M records, 2020+)
-- **expenditures** - Money spent (1.5M records)
-- **reports** - Campaign finance report cover sheets (94K records)
-
-Indexes use `gin_trgm_ops` for fast fuzzy text search on name fields.
+Dates are stored as 8-digit integers (YYYYMMDD):
+- Example: `20241215` = December 15, 2024
+- Use DuckDB's `make_date()` for conversions
 
 ## Key Technical Decisions
 
 ### Tailwind CSS v4
-Uses the new `@theme` directive for custom colors instead of `tailwind.config.js`:
+Uses the new `@theme` directive for custom colors:
 ```css
 @import "tailwindcss";
 @theme {
   --color-texas-blue: #002868;
   --color-texas-red: #BF0D3E;
-  ...
 }
 ```
 
 ### Static Site Generation
-Astro builds static HTML. All data fetching happens client-side via React components with `client:load` directive. No dynamic server routes.
+Astro builds static HTML. All data fetching happens client-side via React components with `client:load` directive.
 
 ### Candidate Pages
-Uses query params (`/candidate?id=XXX`) instead of dynamic routes (`/candidate/[id]`) because static output mode requires `getStaticPaths()`.
+Uses query params (`/candidate?id=XXX`) instead of dynamic routes because static output mode requires `getStaticPaths()`.
 
-### No Foreign Keys
-FK constraints were dropped because TEC data has contributions referencing filers that don't exist in the subset we imported.
-
-## Data Import
-
-The TEC CSV data is at `/Users/josh/Downloads/TEC_CF_CSV (1)/`. Python import scripts filter to 2020+ records only:
-
-```bash
-cd scripts
-python3 -m venv venv
-source venv/bin/activate
-pip install supabase python-dotenv
-
-python3 import_filers.py      # ~2,800 records
-python3 import_contributions.py  # ~8-10M records (takes hours)
-python3 import_expenditures.py   # ~1.5M records
-python3 import_reports.py        # ~95K records
-```
-
-## Common Tasks
-
-### Adding a New Search Filter
-1. Add field to interface in `src/lib/search.ts`
-2. Update the search function to apply the filter
-3. Add UI control in the relevant search component
-
-### Adding a New Page
-1. Create `.astro` file in `src/pages/`
-2. Import `BaseLayout` for consistent header/footer
-3. Use `client:load` for interactive React components
-
-### Modifying Database Schema
-1. Create migration: `bunx supabase migration new description`
-2. Edit the SQL file in `supabase/migrations/`
-3. Push: `bunx supabase db push`
+### Performance
+- **First load:** 30-60 seconds (downloads ~290MB, caches locally)
+- **Cached loads:** <1 second (from IndexedDB)
+- **Query speed:** <100ms (in-browser, no network)
 
 ## Query Builder Features
 
