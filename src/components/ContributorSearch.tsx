@@ -3,7 +3,7 @@ import FacetedFilters, { type FilterValues } from './FacetedFilters';
 import ResultsTable from './ResultsTable';
 import Pagination from './Pagination';
 import DatabaseLoader from './DatabaseLoader';
-import { searchContributions, type SearchFilters, type Contribution } from '../lib/search';
+import { searchContributions, type SearchFilters, type Contribution, type SortParams } from '../lib/search';
 
 interface ContributorSearchProps {
   initialQuery?: string;
@@ -26,6 +26,7 @@ export default function ContributorSearch({ initialQuery = '' }: ContributorSear
   const [currentPage, setCurrentPage] = useState(1);
   const [loading, setLoading] = useState(false);
   const [initialized, setInitialized] = useState(false);
+  const [sortState, setSortState] = useState<SortParams | null>(null);
   const pageSize = 25;
 
   // Read URL parameters client-side on mount
@@ -55,6 +56,7 @@ export default function ContributorSearch({ initialQuery = '' }: ContributorSear
       const result = await searchContributions(searchFilters, {
         page: currentPage,
         pageSize,
+        sort: sortState || undefined,
       });
 
       setResults(result.data);
@@ -64,14 +66,14 @@ export default function ContributorSearch({ initialQuery = '' }: ContributorSear
     } finally {
       setLoading(false);
     }
-  }, [query, filters, currentPage]);
+  }, [query, filters, currentPage, sortState]);
 
-  // Run search when initialized (after URL params are read) or when page/filters change
+  // Run search when initialized (after URL params are read) or when page/filters/sort change
   useEffect(() => {
     if (initialized) {
       performSearch();
     }
-  }, [initialized, currentPage, filters]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [initialized, currentPage, filters, sortState]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleFilterChange = (newFilters: FilterValues) => {
     setFilters(newFilters);
@@ -81,6 +83,11 @@ export default function ContributorSearch({ initialQuery = '' }: ContributorSear
   const handlePageChange = (page: number) => {
     setCurrentPage(page);
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleSortChange = (newSort: SortParams | null) => {
+    setSortState(newSort);
+    setCurrentPage(1); // Reset to page 1 when sort changes
   };
 
   const handleExportCSV = () => {
@@ -146,7 +153,13 @@ export default function ContributorSearch({ initialQuery = '' }: ContributorSear
 
       {/* Results Table */}
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-        <ResultsTable type="contributions" data={results} loading={loading} />
+        <ResultsTable
+          type="contributions"
+          data={results}
+          loading={loading}
+          sortState={sortState}
+          onSortChange={handleSortChange}
+        />
       </div>
 
       {/* Pagination */}

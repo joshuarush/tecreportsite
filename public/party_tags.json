@@ -84,7 +84,13 @@
     {"filer_id": "00084305", "party": "DEMOCRAT", "name": "Morales Jr., Heriberto"},
     {"filer_id": "00088467", "party": "DEMOCRAT", "name": "Ford Sr., Jerry"},
     {"filer_id": "00082111", "party": "DEMOCRAT", "name": "White, Robert Andrew"},
-    {"filer_id": "00086453", "party": "DEMOCRAT", "name": "Childs, Staci D."}
+    {"filer_id": "00086453", "party": "DEMOCRAT", "name": "Childs, Staci D."},
+    {"filer_id": "00089929", "party": "REPUBLICAN", "name": "Ashby, Trent"},
+    {"filer_id": "00087983", "party": "LIBERTARIAN", "name": "Ashe, Mark Edward"},
+    {"filer_id": "00089925", "party": "REPUBLICAN", "name": "Bailes, Ernest"},
+    {"filer_id": "00077968", "party": "REPUBLICAN", "name": "Ball, Charles Kevin"},
+    {"filer_id": "00054813", "party": "DEMOCRAT", "name": "Barca, Claudia Ordaz"},
+    {"filer_id": "00021153", "party": "DEMOCRAT", "name": "Barrientos, Gonzalo"}
   ],
-  "lastUpdated": "2025-01-19T00:00:00Z"
+  "lastUpdated": "2026-01-19T00:00:00Z"
 }

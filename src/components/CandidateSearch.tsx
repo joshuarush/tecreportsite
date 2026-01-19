@@ -3,7 +3,7 @@ import FacetedFilters, { type FilterValues } from './FacetedFilters';
 import ResultsTable from './ResultsTable';
 import Pagination from './Pagination';
 import DatabaseLoader from './DatabaseLoader';
-import { searchFilers, type SearchFilters } from '../lib/search';
+import { searchFilers, type SearchFilters, type SortParams } from '../lib/search';
 import type { Filer } from '../lib/search';
 
 interface CandidateSearchProps {
@@ -26,6 +26,7 @@ export default function CandidateSearch({ initialQuery = '' }: CandidateSearchPr
   const [totalCount, setTotalCount] = useState(0);
   const [currentPage, setCurrentPage] = useState(1);
   const [loading, setLoading] = useState(false);
+  const [sortState, setSortState] = useState<SortParams | null>(null);
   const pageSize = 25;
 
   const performSearch = useCallback(async () => {
@@ -41,6 +42,7 @@ export default function CandidateSearch({ initialQuery = '' }: CandidateSearchPr
       const result = await searchFilers(searchFilters, {
         page: currentPage,
         pageSize,
+        sort: sortState || undefined,
       });
 
       setResults(result.data);
@@ -50,12 +52,12 @@ export default function CandidateSearch({ initialQuery = '' }: CandidateSearchPr
     } finally {
       setLoading(false);
     }
-  }, [query, filters, currentPage]);
+  }, [query, filters, currentPage, sortState]);
 
-  // Run search on mount and when page/filters change
+  // Run search on mount and when page/filters/sort change
   useEffect(() => {
     performSearch();
-  }, [currentPage, filters]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [currentPage, filters, sortState]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleFilterChange = (newFilters: FilterValues) => {
     setFilters(newFilters);
@@ -65,6 +67,11 @@ export default function CandidateSearch({ initialQuery = '' }: CandidateSearchPr
   const handlePageChange = (page: number) => {
     setCurrentPage(page);
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleSortChange = (newSort: SortParams | null) => {
+    setSortState(newSort);
+    setCurrentPage(1);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -120,7 +127,13 @@ export default function CandidateSearch({ initialQuery = '' }: CandidateSearchPr
 
       {/* Results Table */}
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-        <ResultsTable type="filers" data={results} loading={loading} />
+        <ResultsTable
+          type="filers"
+          data={results}
+          loading={loading}
+          sortState={sortState}
+          onSortChange={handleSortChange}
+        />
       </div>
 
       {/* Pagination */}

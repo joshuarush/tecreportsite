@@ -22,6 +22,7 @@ export {
   onInitProgressChange,
   type SearchFilters,
   type PaginationParams,
+  type SortParams,
   type SearchResult,
   type Contribution,
   type Expenditure,

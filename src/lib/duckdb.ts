@@ -322,9 +322,15 @@ export interface SearchFilters {
   filerType?: string;
 }
 
+export interface SortParams {
+  column: string;
+  direction: 'asc' | 'desc';
+}
+
 export interface PaginationParams {
   page: number;
   pageSize: number;
+  sort?: SortParams;
 }
 
 export interface SearchResult<T> {
@@ -358,6 +364,15 @@ function escapeSql(str: string): string {
   return str.replace(/'/g, "''");
 }
 
+// Valid sort columns for contributions
+const CONTRIBUTION_SORT_COLUMNS: Record<string, string> = {
+  contributor_name: 'contributor_name',
+  filer_name: 'filer_name',
+  amount: 'amount',
+  date: 'date',
+  contributor_city: 'contributor_city',
+};
+
 // Search contributions
 export async function searchContributions(
   filters: SearchFilters,
@@ -365,7 +380,7 @@ export async function searchContributions(
 ): Promise<SearchResult<Contribution>> {
   await initDuckDB();
 
-  const { page, pageSize } = pagination;
+  const { page, pageSize, sort } = pagination;
   const offset = (page - 1) * pageSize;
   const conditions: string[] = [];
 
@@ -393,6 +408,14 @@ export async function searchContributions(
 
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
+  // Build ORDER BY clause - validate column name to prevent SQL injection
+  let orderBy = 'ORDER BY date DESC';
+  if (sort && CONTRIBUTION_SORT_COLUMNS[sort.column]) {
+    const col = CONTRIBUTION_SORT_COLUMNS[sort.column];
+    const dir = sort.direction === 'asc' ? 'ASC' : 'DESC';
+    orderBy = `ORDER BY ${col} ${dir}`;
+  }
+
   const countResult = await query<{ count: number }>(`
     SELECT COUNT(*) as count FROM contributions ${whereClause}
   `);
@@ -401,7 +424,7 @@ export async function searchContributions(
   const data = await query<Contribution>(`
     SELECT * FROM contributions
     ${whereClause}
-    ORDER BY date DESC
+    ${orderBy}
     LIMIT ${pageSize} OFFSET ${offset}
   `);
 
@@ -414,6 +437,15 @@ export async function searchContributions(
   };
 }
 
+// Valid sort columns for filers
+const FILER_SORT_COLUMNS: Record<string, string> = {
+  name: 'name',
+  type: 'type',
+  office_held: 'office_held',
+  party: 'party',
+  status: 'status',
+};
+
 // Search filers
 export async function searchFilers(
   filters: SearchFilters,
@@ -421,7 +453,7 @@ export async function searchFilers(
 ): Promise<SearchResult<Filer>> {
   await initDuckDB();
 
-  const { page, pageSize } = pagination;
+  const { page, pageSize, sort } = pagination;
   const offset = (page - 1) * pageSize;
   const conditions: string[] = [];
 
@@ -443,6 +475,14 @@ export async function searchFilers(
 
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
+  // Build ORDER BY clause
+  let orderBy = 'ORDER BY name ASC';
+  if (sort && FILER_SORT_COLUMNS[sort.column]) {
+    const col = FILER_SORT_COLUMNS[sort.column];
+    const dir = sort.direction === 'asc' ? 'ASC' : 'DESC';
+    orderBy = `ORDER BY ${col} ${dir}`;
+  }
+
   const countResult = await query<{ count: number }>(`
     SELECT COUNT(*) as count FROM filers ${whereClause}
   `);
@@ -451,7 +491,7 @@ export async function searchFilers(
   const data = await query<Filer>(`
     SELECT * FROM filers
     ${whereClause}
-    ORDER BY name ASC
+    ${orderBy}
     LIMIT ${pageSize} OFFSET ${offset}
   `);
 
@@ -464,6 +504,15 @@ export async function searchFilers(
   };
 }
 
+// Valid sort columns for expenditures
+const EXPENDITURE_SORT_COLUMNS: Record<string, string> = {
+  filer_name: 'filer_name',
+  payee_name: 'payee_name',
+  amount: 'amount',
+  date: 'date',
+  category: 'category',
+};
+
 // Search expenditures
 export async function searchExpenditures(
   filters: SearchFilters,
@@ -471,7 +520,7 @@ export async function searchExpenditures(
 ): Promise<SearchResult<Expenditure>> {
   await initDuckDB();
 
-  const { page, pageSize } = pagination;
+  const { page, pageSize, sort } = pagination;
   const offset = (page - 1) * pageSize;
   const conditions: string[] = [];
 
@@ -496,6 +545,14 @@ export async function searchExpenditures(
 
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
+  // Build ORDER BY clause
+  let orderBy = 'ORDER BY date DESC';
+  if (sort && EXPENDITURE_SORT_COLUMNS[sort.column]) {
+    const col = EXPENDITURE_SORT_COLUMNS[sort.column];
+    const dir = sort.direction === 'asc' ? 'ASC' : 'DESC';
+    orderBy = `ORDER BY ${col} ${dir}`;
+  }
+
   const countResult = await query<{ count: number }>(`
     SELECT COUNT(*) as count FROM expenditures ${whereClause}
   `);
@@ -504,7 +561,7 @@ export async function searchExpenditures(
   const data = await query<Expenditure>(`
     SELECT * FROM expenditures
     ${whereClause}
-    ORDER BY date DESC
+    ${orderBy}
     LIMIT ${pageSize} OFFSET ${offset}
   `);
 

@@ -1,23 +1,28 @@
 import { useState, useMemo } from 'react';
 import { formatCurrency, formatDate } from '../lib/search';
-import type { Contribution, Filer, Expenditure } from '../lib/search';
+import type { Contribution, Filer, Expenditure, SortParams } from '../lib/search';
 
-interface ContributionsTableProps {
+// Base props shared by all table types
+interface BaseTableProps {
+  loading?: boolean;
+  // Server-side sorting: parent controls sort state
+  sortState?: SortParams | null;
+  onSortChange?: (sort: SortParams | null) => void;
+}
+
+interface ContributionsTableProps extends BaseTableProps {
   type: 'contributions';
   data: Contribution[];
-  loading?: boolean;
 }
 
-interface FilersTableProps {
+interface FilersTableProps extends BaseTableProps {
   type: 'filers';
   data: Filer[];
-  loading?: boolean;
 }
 
-interface ExpendituresTableProps {
+interface ExpendituresTableProps extends BaseTableProps {
   type: 'expenditures';
   data: Expenditure[];
-  loading?: boolean;
 }
 
 type ResultsTableProps = ContributionsTableProps | FilersTableProps | ExpendituresTableProps;
@@ -116,34 +121,61 @@ function LoadingRow({ cols }: { cols: number }) {
 }
 
 export default function ResultsTable(props: ResultsTableProps) {
-  const { type, data, loading } = props;
-  const [sortState, setSortState] = useState<SortState>({ column: null, direction: null });
+  const { type, data, loading, sortState: parentSortState, onSortChange } = props;
+
+  // Use local state for client-side sorting, or controlled state for server-side
+  const [localSortState, setLocalSortState] = useState<SortState>({ column: null, direction: null });
+
+  // Determine if we're in server-side sorting mode
+  const isServerSide = !!onSortChange;
+
+  // Convert parent sort state to local format for display
+  const effectiveSortState: SortState = isServerSide && parentSortState
+    ? { column: parentSortState.column, direction: parentSortState.direction }
+    : localSortState;
 
   const handleSort = (column: string) => {
-    setSortState(prev => {
-      if (prev.column !== column) {
-        return { column, direction: 'asc' };
+    if (isServerSide) {
+      // Server-side sorting: notify parent
+      if (parentSortState?.column !== column) {
+        onSortChange({ column, direction: 'asc' });
+      } else if (parentSortState.direction === 'asc') {
+        onSortChange({ column, direction: 'desc' });
+      } else {
+        onSortChange(null); // Reset to default
       }
-      if (prev.direction === 'asc') {
-        return { column, direction: 'desc' };
-      }
-      // Reset to no sort
-      return { column: null, direction: null };
-    });
+    } else {
+      // Client-side sorting: use local state
+      setLocalSortState(prev => {
+        if (prev.column !== column) {
+          return { column, direction: 'asc' };
+        }
+        if (prev.direction === 'asc') {
+          return { column, direction: 'desc' };
+        }
+        return { column: null, direction: null };
+      });
+    }
   };
 
-  // Sort data based on type - all hooks called unconditionally
+  // Only sort client-side if NOT in server-side mode
   const sortedContributions = useMemo(
-    () => type === 'contributions' ? sortData(data as Contribution[], sortState) : [],
-    [type, data, sortState]
+    () => type === 'contributions'
+      ? (isServerSide ? data as Contribution[] : sortData(data as Contribution[], localSortState))
+      : [],
+    [type, data, localSortState, isServerSide]
   );
   const sortedFilers = useMemo(
-    () => type === 'filers' ? sortData(data as Filer[], sortState) : [],
-    [type, data, sortState]
+    () => type === 'filers'
+      ? (isServerSide ? data as Filer[] : sortData(data as Filer[], localSortState))
+      : [],
+    [type, data, localSortState, isServerSide]
   );
   const sortedExpenditures = useMemo(
-    () => type === 'expenditures' ? sortData(data as Expenditure[], sortState) : [],
-    [type, data, sortState]
+    () => type === 'expenditures'
+      ? (isServerSide ? data as Expenditure[] : sortData(data as Expenditure[], localSortState))
+      : [],
+    [type, data, localSortState, isServerSide]
   );
 
   if (type === 'contributions') {
@@ -152,11 +184,11 @@ export default function ResultsTable(props: ResultsTableProps) {
         <table className="w-full">
           <thead>
             <tr className="border-b border-slate-200 text-left">
-              <SortableHeader label="Contributor" column="contributor_name" sortState={sortState} onSort={handleSort} />
-              <SortableHeader label="Recipient" column="filer_name" sortState={sortState} onSort={handleSort} />
-              <SortableHeader label="Amount" column="amount" sortState={sortState} onSort={handleSort} className="text-right" />
-              <SortableHeader label="Date" column="date" sortState={sortState} onSort={handleSort} />
-              <SortableHeader label="Location" column="contributor_city" sortState={sortState} onSort={handleSort} className="hidden md:table-cell" />
+              <SortableHeader label="Contributor" column="contributor_name" sortState={effectiveSortState} onSort={handleSort} />
+              <SortableHeader label="Recipient" column="filer_name" sortState={effectiveSortState} onSort={handleSort} />
+              <SortableHeader label="Amount" column="amount" sortState={effectiveSortState} onSort={handleSort} className="text-right" />
+              <SortableHeader label="Date" column="date" sortState={effectiveSortState} onSort={handleSort} />
+              <SortableHeader label="Location" column="contributor_city" sortState={effectiveSortState} onSort={handleSort} className="hidden md:table-cell" />
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
@@ -223,11 +255,11 @@ export default function ResultsTable(props: ResultsTableProps) {
         <table className="w-full">
           <thead>
             <tr className="border-b border-slate-200 text-left">
-              <SortableHeader label="Name" column="name" sortState={sortState} onSort={handleSort} />
-              <SortableHeader label="Type" column="type" sortState={sortState} onSort={handleSort} />
-              <SortableHeader label="Office" column="office_held" sortState={sortState} onSort={handleSort} />
-              <SortableHeader label="Party" column="party" sortState={sortState} onSort={handleSort} />
-              <SortableHeader label="Status" column="status" sortState={sortState} onSort={handleSort} />
+              <SortableHeader label="Name" column="name" sortState={effectiveSortState} onSort={handleSort} />
+              <SortableHeader label="Type" column="type" sortState={effectiveSortState} onSort={handleSort} />
+              <SortableHeader label="Office" column="office_held" sortState={effectiveSortState} onSort={handleSort} />
+              <SortableHeader label="Party" column="party" sortState={effectiveSortState} onSort={handleSort} />
+              <SortableHeader label="Status" column="status" sortState={effectiveSortState} onSort={handleSort} />
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
@@ -290,11 +322,11 @@ export default function ResultsTable(props: ResultsTableProps) {
       <table className="w-full">
         <thead>
           <tr className="border-b border-slate-200 text-left">
-            <SortableHeader label="Payer" column="filer_name" sortState={sortState} onSort={handleSort} />
-            <SortableHeader label="Payee" column="payee_name" sortState={sortState} onSort={handleSort} />
-            <SortableHeader label="Amount" column="amount" sortState={sortState} onSort={handleSort} className="text-right" />
-            <SortableHeader label="Date" column="date" sortState={sortState} onSort={handleSort} />
-            <SortableHeader label="Category" column="category" sortState={sortState} onSort={handleSort} className="hidden md:table-cell" />
+            <SortableHeader label="Payer" column="filer_name" sortState={effectiveSortState} onSort={handleSort} />
+            <SortableHeader label="Payee" column="payee_name" sortState={effectiveSortState} onSort={handleSort} />
+            <SortableHeader label="Amount" column="amount" sortState={effectiveSortState} onSort={handleSort} className="text-right" />
+            <SortableHeader label="Date" column="date" sortState={effectiveSortState} onSort={handleSort} />
+            <SortableHeader label="Category" column="category" sortState={effectiveSortState} onSort={handleSort} className="hidden md:table-cell" />
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100">
