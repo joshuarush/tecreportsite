@@ -25,7 +25,20 @@ export default function ContributorSearch({ initialQuery = '' }: ContributorSear
   const [totalCount, setTotalCount] = useState(0);
   const [currentPage, setCurrentPage] = useState(1);
   const [loading, setLoading] = useState(false);
+  const [initialized, setInitialized] = useState(false);
   const pageSize = 25;
+
+  // Read URL parameters client-side on mount
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const urlQuery = params.get('q');
+      if (urlQuery) {
+        setQuery(urlQuery);
+      }
+      setInitialized(true);
+    }
+  }, []);
 
   const performSearch = useCallback(async () => {
     setLoading(true);
@@ -53,10 +66,12 @@ export default function ContributorSearch({ initialQuery = '' }: ContributorSear
     }
   }, [query, filters, currentPage]);
 
-  // Initial search on mount
+  // Run search when initialized (after URL params are read)
   useEffect(() => {
-    performSearch();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    if (initialized) {
+      performSearch();
+    }
+  }, [initialized]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleFilterChange = (newFilters: FilterValues) => {
     setFilters(newFilters);
