@@ -66,9 +66,12 @@ export default function ResultsTable(props: ResultsTableProps) {
               (data as Contribution[]).map((contribution) => (
                 <tr key={contribution.id} className="hover:bg-slate-50">
                   <td className="px-4 py-3">
-                    <div className="font-medium text-slate-900 text-sm">
+                    <a
+                      href={`/search/contributors?q=${encodeURIComponent(contribution.contributor_name || '')}${contribution.contributor_city ? `&city=${encodeURIComponent(contribution.contributor_city)}` : ''}`}
+                      className="font-medium text-texas-blue hover:text-blue-700 text-sm block"
+                    >
                       {contribution.contributor_name || 'Unknown'}
-                    </div>
+                    </a>
                     {contribution.contributor_employer && (
                       <div className="text-xs text-slate-500">
                         {contribution.contributor_employer}

@@ -1160,9 +1160,12 @@ export default function AdvancedSearch() {
                       aggregatedResults.map((donor, idx) => (
                         <tr key={`${donor.contributor_name}-${idx}`} className="hover:bg-slate-50">
                           <td className="px-4 py-3">
-                            <div className="font-medium text-slate-900 text-sm">
+                            <a
+                              href={`/search/contributors?q=${encodeURIComponent(donor.contributor_name || '')}`}
+                              className="font-medium text-texas-blue hover:text-blue-700 text-sm block"
+                            >
                               {donor.contributor_name || 'Unknown'}
-                            </div>
+                            </a>
                           </td>
                           <td className="px-4 py-3 text-right">
                             <span className="font-medium text-texas-blue text-sm">
