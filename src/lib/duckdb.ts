@@ -319,6 +319,7 @@ export interface SearchFilters {
   officeType?: string;
   district?: string;
   filerId?: string;
+  filerType?: string;
 }
 
 export interface PaginationParams {
@@ -435,6 +436,9 @@ export async function searchFilers(
   }
   if (filters.district) {
     conditions.push(`(district_held = '${escapeSql(filters.district)}' OR district_sought = '${escapeSql(filters.district)}')`);
+  }
+  if (filters.filerType) {
+    conditions.push(`type = '${escapeSql(filters.filerType)}'`);
   }
 
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';

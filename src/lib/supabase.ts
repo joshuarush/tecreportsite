@@ -74,3 +74,71 @@ export interface Report {
   total_expenditures?: number;
   cash_on_hand?: number;
 }
+
+export interface PartyTag {
+  filer_id: string;
+  party: string;
+  tagged_at: string;
+}
+
+// Valid party options for tagging
+export const PARTY_OPTIONS = [
+  'REPUBLICAN',
+  'DEMOCRAT',
+  'LIBERTARIAN',
+  'GREEN',
+  'INDEPENDENT',
+] as const;
+
+export type PartyOption = typeof PARTY_OPTIONS[number];
+
+/**
+ * Get the user-submitted party tag for a filer (if any)
+ */
+export async function getPartyTag(filerId: string): Promise<PartyTag | null> {
+  try {
+    const { data, error } = await getSupabase()
+      .from('party_tags')
+      .select('*')
+      .eq('filer_id', filerId)
+      .single();
+
+    if (error) {
+      // PGRST116 means no rows found - that's fine
+      if (error.code === 'PGRST116') return null;
+      console.error('Error fetching party tag:', error);
+      return null;
+    }
+
+    return data;
+  } catch (err) {
+    console.error('Error fetching party tag:', err);
+    return null;
+  }
+}
+
+/**
+ * Submit a party tag for a filer
+ * Returns true if successful, false if the filer was already tagged
+ */
+export async function submitPartyTag(filerId: string, party: PartyOption): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { error } = await getSupabase()
+      .from('party_tags')
+      .insert({ filer_id: filerId, party });
+
+    if (error) {
+      // Primary key violation means already tagged
+      if (error.code === '23505') {
+        return { success: false, error: 'This filer has already been tagged' };
+      }
+      console.error('Error submitting party tag:', error);
+      return { success: false, error: error.message };
+    }
+
+    return { success: true };
+  } catch (err: any) {
+    console.error('Error submitting party tag:', err);
+    return { success: false, error: err.message || 'Unknown error' };
+  }
+}

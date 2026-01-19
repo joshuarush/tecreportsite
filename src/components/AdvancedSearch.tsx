@@ -214,6 +214,7 @@ export default function AdvancedSearch() {
   const [currentPage, setCurrentPage] = useState(1);
   const [loading, setLoading] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
+  const [autoSearch, setAutoSearch] = useState(false);
   const [expandedSections, setExpandedSections] = useState({
     transaction: true,
     name: true,
@@ -226,6 +227,88 @@ export default function AdvancedSearch() {
     aggregation: false,
   });
   const pageSize = 50;
+
+  // Parse URL parameters on mount
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const params = new URLSearchParams(window.location.search);
+    const newFilters = { ...DEFAULT_FILTERS };
+    let hasParams = false;
+    let needsAggregation = false;
+    let needsFiler = false;
+
+    // Map URL params to filters
+    if (params.get('party')) {
+      newFilters.party = params.get('party')!;
+      hasParams = true;
+      needsFiler = true;
+    }
+    if (params.get('contributorType')) {
+      newFilters.contributorType = params.get('contributorType')!;
+      hasParams = true;
+    }
+    if (params.get('amountMin')) {
+      newFilters.amountMin = params.get('amountMin')!;
+      hasParams = true;
+    }
+    if (params.get('amountMax')) {
+      newFilters.amountMax = params.get('amountMax')!;
+      hasParams = true;
+    }
+    if (params.get('groupByDonor') === 'true') {
+      newFilters.groupByDonor = true;
+      hasParams = true;
+      needsAggregation = true;
+    }
+    if (params.get('minContributions')) {
+      newFilters.minContributions = params.get('minContributions')!;
+      hasParams = true;
+      needsAggregation = true;
+    }
+    if (params.get('minTotalAmount')) {
+      newFilters.minTotalAmount = params.get('minTotalAmount')!;
+      hasParams = true;
+      needsAggregation = true;
+    }
+    if (params.get('filerType')) {
+      newFilters.filerType = params.get('filerType')!;
+      hasParams = true;
+      needsFiler = true;
+    }
+    if (params.get('name')) {
+      newFilters.name = params.get('name')!;
+      hasParams = true;
+    }
+
+    if (hasParams) {
+      setFilters(newFilters);
+      // Expand relevant sections
+      if (needsAggregation) {
+        setExpandedSections(prev => ({ ...prev, aggregation: true }));
+      }
+      if (needsFiler) {
+        setExpandedSections(prev => ({ ...prev, filer: true }));
+      }
+      // Auto-run search with URL params
+      setAutoSearch(true);
+    }
+  }, []);
+
+  // Auto-search when URL params are present (runs after filters are set)
+  useEffect(() => {
+    if (autoSearch) {
+      setAutoSearch(false);
+      // Small delay to ensure filters state is set
+      const timer = setTimeout(() => {
+        setCurrentPage(1);
+        // Trigger search - the performSearch will pick up the filters
+        setHasSearched(true);
+        setLoading(true);
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [autoSearch]);
 
   const toggleSection = (section: keyof typeof expandedSections) => {
     setExpandedSections((prev) => ({ ...prev, [section]: !prev[section] }));
@@ -503,6 +586,13 @@ export default function AdvancedSearch() {
     }
   }, [currentPage, hasSearched, performSearch]);
 
+  // Auto-search from URL params (page 1)
+  useEffect(() => {
+    if (autoSearch && hasSearched) {
+      performSearch();
+    }
+  }, [autoSearch, hasSearched, performSearch]);
+
   const handleExportCSV = () => {
     // TODO: Implement CSV export
     alert('CSV export coming soon!');
@@ -544,8 +634,8 @@ export default function AdvancedSearch() {
       <div className="space-y-4">
         <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
           <div className="p-4 border-b border-slate-200 bg-texas-blue text-white">
-            <h2 className="text-lg font-semibold">Advanced Search</h2>
-            <p className="text-sm text-blue-200 mt-1">Build complex queries with multiple filters</p>
+            <h2 className="text-lg font-semibold">List Builder</h2>
+            <p className="text-sm text-blue-200 mt-1">Build targeted lists with multiple filters</p>
           </div>
 
           <div className="p-4 space-y-4">

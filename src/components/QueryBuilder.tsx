@@ -40,11 +40,14 @@ const FIELDS: Record<DataSource, { value: string; label: string; type: 'text' | 
     { value: 'amount', label: 'Amount', type: 'number' },
     { value: 'date', label: 'Contribution Date', type: 'date' },
     { value: 'contributor_type', label: 'Contributor Type', type: 'text' },
-    { value: 'contributor_city', label: 'City', type: 'text' },
-    { value: 'contributor_state', label: 'State', type: 'text' },
+    { value: 'contributor_city', label: 'Contributor City', type: 'text' },
+    { value: 'contributor_state', label: 'Contributor State', type: 'text' },
+    { value: 'contributor_zip', label: 'Contributor Zip', type: 'text' },
     { value: 'contributor_employer', label: 'Employer', type: 'text' },
     { value: 'contributor_occupation', label: 'Occupation', type: 'text' },
     { value: 'description', label: 'Description', type: 'text' },
+    { value: 'contribution_type', label: 'Contribution Type', type: 'text' },
+    { value: 'in_kind_description', label: 'In-Kind Description', type: 'text' },
     { value: 'received_date', label: 'Report Filed Date', type: 'date' },
   ],
   expenditures: [
@@ -54,9 +57,12 @@ const FIELDS: Record<DataSource, { value: string; label: string; type: 'text' | 
     { value: 'amount', label: 'Amount', type: 'number' },
     { value: 'date', label: 'Expenditure Date', type: 'date' },
     { value: 'category', label: 'Category', type: 'text' },
+    { value: 'expenditure_type', label: 'Expenditure Type', type: 'text' },
     { value: 'payee_city', label: 'Payee City', type: 'text' },
     { value: 'payee_state', label: 'Payee State', type: 'text' },
+    { value: 'payee_zip', label: 'Payee Zip', type: 'text' },
     { value: 'description', label: 'Description', type: 'text' },
+    { value: 'reimbursement_expected', label: 'Reimbursement Expected', type: 'text' },
     { value: 'received_date', label: 'Report Filed Date', type: 'date' },
   ],
   filers: [
@@ -64,11 +70,16 @@ const FIELDS: Record<DataSource, { value: string; label: string; type: 'text' | 
     { value: 'id', label: 'Filer ID', type: 'text' },
     { value: 'type', label: 'Filer Type', type: 'text' },
     { value: 'party', label: 'Party', type: 'text' },
-    { value: 'office_held', label: 'Office', type: 'text' },
-    { value: 'office_district', label: 'District', type: 'text' },
+    { value: 'office_held', label: 'Office Held', type: 'text' },
+    { value: 'office_sought', label: 'Office Sought', type: 'text' },
+    { value: 'district_held', label: 'District Held', type: 'text' },
+    { value: 'district_sought', label: 'District Sought', type: 'text' },
+    { value: 'office_district', label: 'Office/District', type: 'text' },
     { value: 'status', label: 'Status', type: 'text' },
     { value: 'city', label: 'City', type: 'text' },
     { value: 'state', label: 'State', type: 'text' },
+    { value: 'effective_start', label: 'Effective Start', type: 'date' },
+    { value: 'effective_stop', label: 'Effective Stop', type: 'date' },
   ],
   reports: [
     { value: 'filer_name', label: 'Filer Name', type: 'text' },
@@ -80,6 +91,8 @@ const FIELDS: Record<DataSource, { value: string; label: string; type: 'text' | 
     { value: 'total_contributions', label: 'Total Contributions', type: 'number' },
     { value: 'total_expenditures', label: 'Total Expenditures', type: 'number' },
     { value: 'cash_on_hand', label: 'Cash on Hand', type: 'number' },
+    { value: 'loans_outstanding', label: 'Loans Outstanding', type: 'number' },
+    { value: 'beginning_balance', label: 'Beginning Balance', type: 'number' },
   ],
 };
 
@@ -99,19 +112,35 @@ const OPERATORS: { value: Operator; label: string; types: ('text' | 'number' | '
   { value: 'regex', label: 'matches pattern (regex)', types: ['text'] },
 ];
 
-const generateId = () => Math.random().toString(36).substr(2, 9);
+const generateId = () => Math.random().toString(36).substring(2, 11);
 
-const createCondition = (): Condition => ({
+// Default fields for each data source
+const DEFAULT_FIELDS: Record<DataSource, string> = {
+  contributions: 'contributor_name',
+  expenditures: 'payee_name',
+  filers: 'name',
+  reports: 'filer_name',
+};
+
+// Default sort columns for each data source
+const DEFAULT_ORDER_BY: Record<DataSource, string> = {
+  contributions: 'date DESC',
+  expenditures: 'date DESC',
+  filers: 'name ASC',
+  reports: 'period_end DESC',
+};
+
+const createCondition = (dataSource: DataSource = 'contributions'): Condition => ({
   id: generateId(),
-  field: 'contributor_name',
+  field: DEFAULT_FIELDS[dataSource],
   operator: 'contains',
   value: '',
 });
 
-const createGroup = (): ConditionGroup => ({
+const createGroup = (dataSource: DataSource = 'contributions'): ConditionGroup => ({
   id: generateId(),
   logicalOperator: 'AND',
-  conditions: [createCondition()],
+  conditions: [createCondition(dataSource)],
 });
 
 export default function QueryBuilder() {
@@ -166,7 +195,7 @@ export default function QueryBuilder() {
       if (group.id === groupId) {
         return {
           ...group,
-          conditions: [...group.conditions, createCondition()],
+          conditions: [...group.conditions, createCondition(dataSource)],
         };
       }
       return {
@@ -184,7 +213,7 @@ export default function QueryBuilder() {
       if (group.id === parentGroupId) {
         return {
           ...group,
-          conditions: [...group.conditions, createGroup()],
+          conditions: [...group.conditions, createGroup(dataSource)],
         };
       }
       return {
@@ -376,7 +405,7 @@ export default function QueryBuilder() {
           SELECT *
           FROM ${dataSource}
           ${whereStr}
-          ORDER BY date DESC
+          ORDER BY ${DEFAULT_ORDER_BY[dataSource]}
           LIMIT ${limit}
         `;
 
@@ -570,16 +599,16 @@ export default function QueryBuilder() {
   return (
     <DatabaseLoader>
     <div className="space-y-6">
-      {/* Query Builder Header */}
+      {/* Advanced Header */}
       <div className="bg-gradient-to-r from-texas-blue to-blue-900 text-white rounded-xl p-6">
-        <h1 className="text-2xl font-bold mb-2">Query Builder</h1>
+        <h1 className="text-2xl font-bold mb-2">Advanced</h1>
         <p className="text-blue-200">
           Build complex, multi-condition queries with boolean logic to analyze campaign finance data
         </p>
       </div>
 
       <div className="grid lg:grid-cols-[1fr_400px] gap-6">
-        {/* Query Builder Panel */}
+        {/* Advanced Panel */}
         <div className="space-y-4">
           {/* Data Source Selection */}
           <div className="bg-white rounded-xl border border-slate-200 p-4">
@@ -590,8 +619,11 @@ export default function QueryBuilder() {
                   key={source}
                   onClick={() => {
                     setDataSource(source);
-                    setRootGroup(createGroup());
+                    setRootGroup(createGroup(source));
                     setAggregation(prev => ({ ...prev, groupBy: [] }));
+                    setResults([]);
+                    setAggregatedResults([]);
+                    setError(null);
                   }}
                   className={`px-4 py-2 rounded-lg font-medium transition-colors ${
                     dataSource === source

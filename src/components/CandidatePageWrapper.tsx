@@ -22,10 +22,10 @@ export default function CandidatePageWrapper() {
       <div className="bg-white rounded-xl border border-slate-200 p-8 text-center">
         <p className="text-slate-500 mb-4">No candidate ID provided. Please go back and select a candidate.</p>
         <a
-          href="/search/candidates"
+          href="/search/committees"
           className="inline-block px-4 py-2 bg-[#002868] text-white rounded-lg hover:bg-blue-900"
         >
-          Browse Candidates
+          Browse Committees
         </a>
       </div>
     );

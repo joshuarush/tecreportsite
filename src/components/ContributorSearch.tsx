@@ -19,6 +19,7 @@ export default function ContributorSearch({ initialQuery = '' }: ContributorSear
     contributorType: '',
     party: '',
     officeType: '',
+    filerType: '',
   });
   const [results, setResults] = useState<Contribution[]>([]);
   const [totalCount, setTotalCount] = useState(0);

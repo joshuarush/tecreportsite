@@ -8,7 +8,7 @@ interface SearchBarProps {
 }
 
 export default function SearchBar({
-  placeholder = "Search donors, candidates, or organizations...",
+  placeholder = "Search donors, committees, or organizations...",
   onSearch,
   initialValue = '',
   size = 'large'

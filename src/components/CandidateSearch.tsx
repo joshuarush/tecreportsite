@@ -20,6 +20,7 @@ export default function CandidateSearch({ initialQuery = '' }: CandidateSearchPr
     contributorType: '',
     party: '',
     officeType: '',
+    filerType: '',
   });
   const [results, setResults] = useState<Filer[]>([]);
   const [totalCount, setTotalCount] = useState(0);
@@ -34,6 +35,7 @@ export default function CandidateSearch({ initialQuery = '' }: CandidateSearchPr
         query: query || undefined,
         party: filters.party || undefined,
         officeType: filters.officeType || undefined,
+        filerType: filters.filerType || undefined,
       };
 
       const result = await searchFilers(searchFilters, {
@@ -81,7 +83,7 @@ export default function CandidateSearch({ initialQuery = '' }: CandidateSearchPr
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search by candidate or committee name..."
+            placeholder="Search by committee or candidate name..."
             className="w-full px-4 py-3 pr-12 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-texas-blue focus:border-transparent"
           />
           <svg
@@ -112,7 +114,7 @@ export default function CandidateSearch({ initialQuery = '' }: CandidateSearchPr
       {/* Results Header */}
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold text-slate-900">
-          {loading ? 'Searching...' : `${totalCount.toLocaleString()} candidates & committees found`}
+          {loading ? 'Searching...' : `${totalCount.toLocaleString()} committees & candidates found`}
         </h2>
       </div>
 
