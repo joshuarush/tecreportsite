@@ -66,12 +66,12 @@ export default function ContributorSearch({ initialQuery = '' }: ContributorSear
     }
   }, [query, filters, currentPage]);
 
-  // Run search when initialized (after URL params are read)
+  // Run search when initialized (after URL params are read) or when page/filters change
   useEffect(() => {
     if (initialized) {
       performSearch();
     }
-  }, [initialized]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [initialized, currentPage, filters]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleFilterChange = (newFilters: FilterValues) => {
     setFilters(newFilters);

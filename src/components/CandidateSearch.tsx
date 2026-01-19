@@ -52,10 +52,10 @@ export default function CandidateSearch({ initialQuery = '' }: CandidateSearchPr
     }
   }, [query, filters, currentPage]);
 
-  // Initial search on mount
+  // Run search on mount and when page/filters change
   useEffect(() => {
     performSearch();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [currentPage, filters]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleFilterChange = (newFilters: FilterValues) => {
     setFilters(newFilters);
