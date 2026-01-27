@@ -27,7 +27,7 @@ export default function ContributorSearch({ initialQuery = '' }: ContributorSear
   const [loading, setLoading] = useState(false);
   const [initialized, setInitialized] = useState(false);
   const [sortState, setSortState] = useState<SortParams | null>(null);
-  const pageSize = 25;
+  const pageSize = 50;
 
   // Read URL parameters client-side on mount
   useEffect(() => {

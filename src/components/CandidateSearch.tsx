@@ -27,7 +27,7 @@ export default function CandidateSearch({ initialQuery = '' }: CandidateSearchPr
   const [currentPage, setCurrentPage] = useState(1);
   const [loading, setLoading] = useState(false);
   const [sortState, setSortState] = useState<SortParams | null>(null);
-  const pageSize = 25;
+  const pageSize = 50;
 
   const performSearch = useCallback(async () => {
     setLoading(true);

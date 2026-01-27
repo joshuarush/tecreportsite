@@ -1,92 +1,9 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import ResultsTable from './ResultsTable';
+import ResultsTable, { SortableHeader, sortData, type SortState } from './ResultsTable';
 import Pagination from './Pagination';
 import DatabaseLoader from './DatabaseLoader';
 import { query as duckdbQuery, waitForInit, formatCurrency, formatDate, type Contribution, type Expenditure } from '../lib/duckdb';
-
-// Sort types for aggregated table
-type SortDirection = 'asc' | 'desc' | null;
-
-interface SortState {
-  column: string | null;
-  direction: SortDirection;
-}
-
-// Sort indicator arrow component
-function SortIndicator({ direction }: { direction: SortDirection }) {
-  if (!direction) {
-    return (
-      <svg className="w-4 h-4 text-slate-300 ml-1 inline-block" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
-      </svg>
-    );
-  }
-  return direction === 'asc' ? (
-    <svg className="w-4 h-4 text-texas-blue ml-1 inline-block" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
-    </svg>
-  ) : (
-    <svg className="w-4 h-4 text-texas-blue ml-1 inline-block" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-    </svg>
-  );
-}
-
-// Sortable header component
-function SortableHeader({
-  label,
-  column,
-  sortState,
-  onSort,
-  className = ''
-}: {
-  label: string;
-  column: string;
-  sortState: SortState;
-  onSort: (column: string) => void;
-  className?: string;
-}) {
-  const isActive = sortState.column === column;
-  return (
-    <th
-      className={`px-4 py-3 text-sm font-semibold text-slate-900 cursor-pointer hover:bg-slate-100 select-none transition-colors ${className}`}
-      onClick={() => onSort(column)}
-    >
-      <span className="flex items-center">
-        {label}
-        <SortIndicator direction={isActive ? sortState.direction : null} />
-      </span>
-    </th>
-  );
-}
-
-// Generic sort function
-function sortData<T>(data: T[], sortState: SortState): T[] {
-  if (!sortState.column || !sortState.direction) return data;
-
-  return [...data].sort((a, b) => {
-    const aVal = (a as any)[sortState.column!];
-    const bVal = (b as any)[sortState.column!];
-
-    // Handle null/undefined
-    if (aVal == null && bVal == null) return 0;
-    if (aVal == null) return sortState.direction === 'asc' ? -1 : 1;
-    if (bVal == null) return sortState.direction === 'asc' ? 1 : -1;
-
-    // Handle numbers (including BigInt from DuckDB)
-    const aNum = typeof aVal === 'bigint' ? Number(aVal) : aVal;
-    const bNum = typeof bVal === 'bigint' ? Number(bVal) : bVal;
-    if (typeof aNum === 'number' && typeof bNum === 'number') {
-      return sortState.direction === 'asc' ? aNum - bNum : bNum - aNum;
-    }
-
-    // Handle strings (case-insensitive)
-    const aStr = String(aVal).toLowerCase();
-    const bStr = String(bVal).toLowerCase();
-    const comparison = aStr.localeCompare(bStr);
-    return sortState.direction === 'asc' ? comparison : -comparison;
-  });
-}
+import { loadTexasGeo, getCitiesInCounty, getCitiesInRegion, type TexasGeoData } from '../lib/texas-geo';
 
 type TransactionType = 'contributions' | 'expenditures' | 'both';
 
@@ -111,6 +28,8 @@ interface AdvancedFilters {
   city: string;
   state: string;
   zipCode: string;
+  county: string;
+  region: string;
 
   // Contributor details
   employer: string;
@@ -156,6 +75,8 @@ const DEFAULT_FILTERS: AdvancedFilters = {
   city: '',
   state: '',
   zipCode: '',
+  county: '',
+  region: '',
   employer: '',
   occupation: '',
   contributorType: '',
@@ -311,7 +232,13 @@ export default function AdvancedSearch() {
     expenditure: false,
     aggregation: false,
   });
+  const [texasGeo, setTexasGeo] = useState<TexasGeoData | null>(null);
   const pageSize = 50;
+
+  // Load Texas geographic data on mount
+  useEffect(() => {
+    loadTexasGeo().then(setTexasGeo);
+  }, []);
 
   const handleSort = (column: string) => {
     setSortState(prev => {
@@ -489,6 +416,29 @@ export default function AdvancedSearch() {
           }
         }
 
+        // Apply ZIP code filter (supports partial match)
+        if (filters.zipCode) {
+          conditions.push(`${colPrefix}contributor_zip LIKE '${escapeSql(filters.zipCode)}%'`);
+        }
+
+        // Apply county filter (match cities in that county)
+        if (filters.county) {
+          const citiesInCounty = getCitiesInCounty(filters.county);
+          if (citiesInCounty.length > 0) {
+            const cityList = citiesInCounty.map(c => `'${escapeSql(c)}'`).join(', ');
+            conditions.push(`UPPER(${colPrefix}contributor_city) IN (${cityList})`);
+          }
+        }
+
+        // Apply region filter (match cities in that metro region)
+        if (filters.region) {
+          const citiesInRegion = getCitiesInRegion(filters.region);
+          if (citiesInRegion.length > 0) {
+            const cityList = citiesInRegion.map(c => `'${escapeSql(c)}'`).join(', ');
+            conditions.push(`UPPER(${colPrefix}contributor_city) IN (${cityList})`);
+          }
+        }
+
         // Apply contributor filters
         if (filters.employer) {
           conditions.push(`${colPrefix}contributor_employer ILIKE '%${escapeSql(filters.employer)}%'`);
@@ -632,6 +582,29 @@ export default function AdvancedSearch() {
             conditions.push(`(payee_state = 'TX' OR payee_state = 'TEXAS' OR payee_state ILIKE 'Texas')`);
           } else {
             conditions.push(`payee_state = '${escapeSql(filters.state)}'`);
+          }
+        }
+
+        // Apply ZIP code filter (supports partial match)
+        if (filters.zipCode) {
+          conditions.push(`payee_zip LIKE '${escapeSql(filters.zipCode)}%'`);
+        }
+
+        // Apply county filter (match cities in that county)
+        if (filters.county) {
+          const citiesInCounty = getCitiesInCounty(filters.county);
+          if (citiesInCounty.length > 0) {
+            const cityList = citiesInCounty.map(c => `'${escapeSql(c)}'`).join(', ');
+            conditions.push(`UPPER(payee_city) IN (${cityList})`);
+          }
+        }
+
+        // Apply region filter (match cities in that metro region)
+        if (filters.region) {
+          const citiesInRegion = getCitiesInRegion(filters.region);
+          if (citiesInRegion.length > 0) {
+            const cityList = citiesInRegion.map(c => `'${escapeSql(c)}'`).join(', ');
+            conditions.push(`UPPER(payee_city) IN (${cityList})`);
           }
         }
 
@@ -954,6 +927,46 @@ export default function AdvancedSearch() {
               <SectionHeader title="Location" section="location" icon="📍" />
               {expandedSections.location && (
                 <div className="p-4 space-y-3 border border-slate-200 rounded-lg mt-2">
+                  {/* Texas Region Dropdown */}
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Texas Metro Region</label>
+                    <select
+                      value={filters.region}
+                      onChange={(e) => {
+                        updateFilter('region', e.target.value);
+                        if (e.target.value) updateFilter('county', '');
+                      }}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-texas-blue bg-white"
+                    >
+                      <option value="">All Regions</option>
+                      <option value="DFW">Dallas-Fort Worth</option>
+                      <option value="Houston">Houston Metro</option>
+                      <option value="Austin">Austin Metro</option>
+                      <option value="San Antonio">San Antonio Metro</option>
+                      <option value="El Paso">El Paso</option>
+                      <option value="Rio Grande Valley">Rio Grande Valley</option>
+                    </select>
+                  </div>
+
+                  {/* Texas County Dropdown */}
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Texas County</label>
+                    <select
+                      value={filters.county}
+                      onChange={(e) => {
+                        updateFilter('county', e.target.value);
+                        if (e.target.value) updateFilter('region', '');
+                      }}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-texas-blue bg-white"
+                    >
+                      <option value="">All Counties</option>
+                      {texasGeo?.counties.map((c) => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* City Input */}
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">City</label>
                     <input
@@ -964,6 +977,21 @@ export default function AdvancedSearch() {
                       className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-texas-blue"
                     />
                   </div>
+
+                  {/* ZIP Code Input */}
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">ZIP Code</label>
+                    <input
+                      type="text"
+                      value={filters.zipCode}
+                      onChange={(e) => updateFilter('zipCode', e.target.value)}
+                      placeholder="e.g., 78701, 75201"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-texas-blue"
+                    />
+                    <p className="text-xs text-slate-400 mt-1">Partial match supported (e.g., "787" for Austin area)</p>
+                  </div>
+
+                  {/* State Dropdown */}
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">State</label>
                     <select
@@ -976,6 +1004,8 @@ export default function AdvancedSearch() {
                       ))}
                     </select>
                   </div>
+
+                  <p className="text-xs text-slate-400">City/county data from Simplemaps.com (CC-BY 4.0)</p>
                 </div>
               )}
             </div>

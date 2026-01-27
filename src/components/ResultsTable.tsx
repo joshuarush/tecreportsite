@@ -2,40 +2,20 @@ import { useState, useMemo } from 'react';
 import { formatCurrency, formatDate } from '../lib/search';
 import type { Contribution, Filer, Expenditure, SortParams } from '../lib/search';
 
-// Base props shared by all table types
-interface BaseTableProps {
-  loading?: boolean;
-  // Server-side sorting: parent controls sort state
-  sortState?: SortParams | null;
-  onSortChange?: (sort: SortParams | null) => void;
-}
+// ============================================
+// EXPORTED SORTING UTILITIES
+// These can be imported by other components
+// ============================================
 
-interface ContributionsTableProps extends BaseTableProps {
-  type: 'contributions';
-  data: Contribution[];
-}
+export type SortDirection = 'asc' | 'desc' | null;
 
-interface FilersTableProps extends BaseTableProps {
-  type: 'filers';
-  data: Filer[];
-}
-
-interface ExpendituresTableProps extends BaseTableProps {
-  type: 'expenditures';
-  data: Expenditure[];
-}
-
-type ResultsTableProps = ContributionsTableProps | FilersTableProps | ExpendituresTableProps;
-
-type SortDirection = 'asc' | 'desc' | null;
-
-interface SortState {
+export interface SortState {
   column: string | null;
   direction: SortDirection;
 }
 
 // Sort indicator arrow component
-function SortIndicator({ direction }: { direction: SortDirection }) {
+export function SortIndicator({ direction }: { direction: SortDirection }) {
   if (!direction) {
     return (
       <svg className="w-4 h-4 text-slate-300 ml-1 inline-block" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -55,7 +35,7 @@ function SortIndicator({ direction }: { direction: SortDirection }) {
 }
 
 // Sortable header component
-function SortableHeader({
+export function SortableHeader({
   label,
   column,
   sortState,
@@ -82,8 +62,8 @@ function SortableHeader({
   );
 }
 
-// Generic sort function
-function sortData<T>(data: T[], sortState: SortState): T[] {
+// Generic sort function for client-side sorting
+export function sortData<T>(data: T[], sortState: SortState): T[] {
   if (!sortState.column || !sortState.direction) return data;
 
   return [...data].sort((a, b) => {
@@ -95,9 +75,11 @@ function sortData<T>(data: T[], sortState: SortState): T[] {
     if (aVal == null) return sortState.direction === 'asc' ? -1 : 1;
     if (bVal == null) return sortState.direction === 'asc' ? 1 : -1;
 
-    // Handle numbers
-    if (typeof aVal === 'number' && typeof bVal === 'number') {
-      return sortState.direction === 'asc' ? aVal - bVal : bVal - aVal;
+    // Handle numbers (including BigInt from DuckDB)
+    const aNum = typeof aVal === 'bigint' ? Number(aVal) : aVal;
+    const bNum = typeof bVal === 'bigint' ? Number(bVal) : bVal;
+    if (typeof aNum === 'number' && typeof bNum === 'number') {
+      return sortState.direction === 'asc' ? aNum - bNum : bNum - aNum;
     }
 
     // Handle strings (case-insensitive)
@@ -107,6 +89,35 @@ function sortData<T>(data: T[], sortState: SortState): T[] {
     return sortState.direction === 'asc' ? comparison : -comparison;
   });
 }
+
+// ============================================
+// RESULTS TABLE COMPONENT
+// ============================================
+
+// Base props shared by all table types
+interface BaseTableProps {
+  loading?: boolean;
+  // Server-side sorting: parent controls sort state
+  sortState?: SortParams | null;
+  onSortChange?: (sort: SortParams | null) => void;
+}
+
+interface ContributionsTableProps extends BaseTableProps {
+  type: 'contributions';
+  data: Contribution[];
+}
+
+interface FilersTableProps extends BaseTableProps {
+  type: 'filers';
+  data: Filer[];
+}
+
+interface ExpendituresTableProps extends BaseTableProps {
+  type: 'expenditures';
+  data: Expenditure[];
+}
+
+type ResultsTableProps = ContributionsTableProps | FilersTableProps | ExpendituresTableProps;
 
 function LoadingRow({ cols }: { cols: number }) {
   return (
