@@ -39,11 +39,16 @@ const OFFICE_TYPES = [
   { value: 'STATEREP', label: 'State Representative' },
   { value: 'STATESEN', label: 'State Senator' },
   { value: 'GOVERNOR', label: 'Governor' },
-  { value: 'LT_GOVERNOR', label: 'Lt. Governor' },
+  { value: 'LTGOVERNOR', label: 'Lt. Governor' },
   { value: 'COMPTROLLER', label: 'Comptroller' },
-  { value: 'ATTORNEY_GEN', label: 'Attorney General' },
-  { value: 'LAND_COMM', label: 'Land Commissioner' },
-  { value: 'AG_COMM', label: 'Agriculture Commissioner' },
+  { value: 'ATTYGEN', label: 'Attorney General' },
+  { value: 'LANDCOMM', label: 'Land Commissioner' },
+  { value: 'AGRICULTUR', label: 'Agriculture Commissioner' },
+  { value: 'RRCOMM', label: 'Railroad Commissioner' },
+  { value: 'STATEEDU', label: 'State Board of Education' },
+  { value: 'JUSTICE_COA', label: 'Court of Appeals Justice' },
+  { value: 'STATE_CHAIR', label: 'State Party Chair' },
+  { value: 'PARTYCHAIRCO', label: 'Party County Chair' },
 ];
 
 const FILER_TYPES = [

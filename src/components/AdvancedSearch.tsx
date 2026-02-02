@@ -110,24 +110,26 @@ const FILER_TYPES = [
 
 const OFFICE_TYPES = [
   { value: '', label: 'All Offices' },
+  // Statewide Executive
   { value: 'GOVERNOR', label: 'Governor' },
-  { value: 'LT_GOVERNOR', label: 'Lieutenant Governor' },
-  { value: 'ATTORNEY_GEN', label: 'Attorney General' },
+  { value: 'LTGOVERNOR', label: 'Lieutenant Governor' },
+  { value: 'ATTYGEN', label: 'Attorney General' },
   { value: 'COMPTROLLER', label: 'Comptroller' },
-  { value: 'LAND_COMM', label: 'Land Commissioner' },
-  { value: 'AG_COMM', label: 'Agriculture Commissioner' },
+  { value: 'LANDCOMM', label: 'Land Commissioner' },
+  { value: 'AGRICULTUR', label: 'Agriculture Commissioner' },
+  { value: 'RRCOMM', label: 'Railroad Commissioner' },
+  // Legislative
   { value: 'STATESEN', label: 'State Senator' },
   { value: 'STATEREP', label: 'State Representative' },
-  { value: 'JUSTICE_SUP', label: 'Supreme Court Justice' },
-  { value: 'JUDGE_CCA', label: 'Court of Criminal Appeals Judge' },
-  { value: 'JUDGE_DIST', label: 'District Judge' },
-  { value: 'JUDGE_COUNTY', label: 'County Judge' },
-  { value: 'DA', label: 'District Attorney' },
-  { value: 'COUNTY_COMM', label: 'County Commissioner' },
-  { value: 'SHERIFF', label: 'Sheriff' },
-  { value: 'MAYOR', label: 'Mayor' },
-  { value: 'CITY_COUNCIL', label: 'City Council' },
-  { value: 'SCHOOL_BD', label: 'School Board' },
+  { value: 'STATEEDU', label: 'State Board of Education' },
+  // Judicial
+  { value: 'JUSTICE_COA', label: 'Court of Appeals Justice' },
+  { value: 'JUDGEDIST', label: 'District Judge' },
+  // Local/County
+  { value: 'DISTATTY', label: 'District Attorney' },
+  // Party
+  { value: 'STATE_CHAIR', label: 'State Party Chair' },
+  { value: 'PARTYCHAIRCO', label: 'Party County Chair' },
 ];
 
 const PARTIES = [
