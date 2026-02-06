@@ -465,7 +465,7 @@ export default function AdvancedSearch() {
           conditions.push(`f.type = '${escapeSql(filters.filerType)}'`);
         }
         if (filters.officeType) {
-          conditions.push(`f.office_sought ILIKE '%${escapeSql(filters.officeType)}%'`);
+          conditions.push(`(f.office_sought = '${escapeSql(filters.officeType)}' OR f.office_held = '${escapeSql(filters.officeType)}')`);
         }
 
         const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
@@ -546,50 +546,54 @@ export default function AdvancedSearch() {
       if (transactionType === 'expenditures') {
         const conditions: string[] = [];
 
+        // Determine if we need to join with filers table (for party, filerType, officeType filters)
+        const needsJoin = filters.party || filters.filerType || filters.officeType;
+        const colPrefix = needsJoin ? 'e.' : '';
+
         // Apply payee name filter
         if (filters.payeeName || filters.name) {
           const searchName = escapeSql(filters.payeeName || filters.name);
           if (filters.nameSearchType === 'exact') {
-            conditions.push(`payee_name ILIKE '${searchName}'`);
+            conditions.push(`${colPrefix}payee_name ILIKE '${searchName}'`);
           } else if (filters.nameSearchType === 'starts_with') {
-            conditions.push(`payee_name ILIKE '${searchName}%'`);
+            conditions.push(`${colPrefix}payee_name ILIKE '${searchName}%'`);
           } else {
-            conditions.push(`payee_name ILIKE '%${searchName}%'`);
+            conditions.push(`${colPrefix}payee_name ILIKE '%${searchName}%'`);
           }
         }
 
         // Apply amount filters
         if (filters.amountMin) {
-          conditions.push(`amount >= ${parseFloat(filters.amountMin)}`);
+          conditions.push(`${colPrefix}amount >= ${parseFloat(filters.amountMin)}`);
         }
         if (filters.amountMax) {
-          conditions.push(`amount <= ${parseFloat(filters.amountMax)}`);
+          conditions.push(`${colPrefix}amount <= ${parseFloat(filters.amountMax)}`);
         }
 
         // Apply date filters
         if (filters.dateFrom) {
-          conditions.push(`date >= ${dateToInt(filters.dateFrom)}`);
+          conditions.push(`${colPrefix}date >= ${dateToInt(filters.dateFrom)}`);
         }
         if (filters.dateTo) {
-          conditions.push(`date <= ${dateToInt(filters.dateTo)}`);
+          conditions.push(`${colPrefix}date <= ${dateToInt(filters.dateTo)}`);
         }
 
         // Apply location filters
         if (filters.city) {
-          conditions.push(`payee_city ILIKE '%${escapeSql(filters.city)}%'`);
+          conditions.push(`${colPrefix}payee_city ILIKE '%${escapeSql(filters.city)}%'`);
         }
         if (filters.state) {
           // Handle both abbreviation and full name (e.g., TX and TEXAS)
           if (filters.state === 'TX') {
-            conditions.push(`(payee_state = 'TX' OR payee_state = 'TEXAS' OR payee_state ILIKE 'Texas')`);
+            conditions.push(`(${colPrefix}payee_state = 'TX' OR ${colPrefix}payee_state = 'TEXAS' OR ${colPrefix}payee_state ILIKE 'Texas')`);
           } else {
-            conditions.push(`payee_state = '${escapeSql(filters.state)}'`);
+            conditions.push(`${colPrefix}payee_state = '${escapeSql(filters.state)}'`);
           }
         }
 
         // Apply ZIP code filter (supports partial match)
         if (filters.zipCode) {
-          conditions.push(`payee_zip LIKE '${escapeSql(filters.zipCode)}%'`);
+          conditions.push(`${colPrefix}payee_zip LIKE '${escapeSql(filters.zipCode)}%'`);
         }
 
         // Apply county filter (match cities in that county)
@@ -597,7 +601,7 @@ export default function AdvancedSearch() {
           const citiesInCounty = getCitiesInCounty(filters.county);
           if (citiesInCounty.length > 0) {
             const cityList = citiesInCounty.map(c => `'${escapeSql(c)}'`).join(', ');
-            conditions.push(`UPPER(payee_city) IN (${cityList})`);
+            conditions.push(`UPPER(${colPrefix}payee_city) IN (${cityList})`);
           }
         }
 
@@ -606,33 +610,50 @@ export default function AdvancedSearch() {
           const citiesInRegion = getCitiesInRegion(filters.region);
           if (citiesInRegion.length > 0) {
             const cityList = citiesInRegion.map(c => `'${escapeSql(c)}'`).join(', ');
-            conditions.push(`UPPER(payee_city) IN (${cityList})`);
+            conditions.push(`UPPER(${colPrefix}payee_city) IN (${cityList})`);
           }
         }
 
         // Apply category filter
         if (filters.expenditureCategory) {
-          conditions.push(`category = '${escapeSql(filters.expenditureCategory)}'`);
+          conditions.push(`${colPrefix}category = '${escapeSql(filters.expenditureCategory)}'`);
         }
 
         // Apply filer name filter
         if (filters.filerName) {
-          conditions.push(`filer_name ILIKE '%${escapeSql(filters.filerName)}%'`);
+          conditions.push(`${colPrefix}filer_name ILIKE '%${escapeSql(filters.filerName)}%'`);
+        }
+
+        // Apply filer-level filters (require join)
+        if (filters.party) {
+          conditions.push(`f.party = '${escapeSql(filters.party)}'`);
+        }
+        if (filters.filerType) {
+          conditions.push(`f.type = '${escapeSql(filters.filerType)}'`);
+        }
+        if (filters.officeType) {
+          conditions.push(`(f.office_sought = '${escapeSql(filters.officeType)}' OR f.office_held = '${escapeSql(filters.officeType)}')`);
         }
 
         const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
+        // Build the FROM clause
+        const fromClause = needsJoin
+          ? `expenditures e JOIN filers f ON e.filer_id = f.id`
+          : `expenditures`;
+
         // Get count
         const countResult = await duckdbQuery<{ count: number }>(`
-          SELECT COUNT(*) as count FROM expenditures ${whereClause}
+          SELECT COUNT(*) as count FROM ${fromClause} ${whereClause}
         `);
         const count = Number(countResult[0]?.count || 0);
 
-        // Get data
+        // Get data - need to select from expenditures with proper column names
+        const selectCols = needsJoin ? 'e.*' : '*';
         const data = await duckdbQuery<Expenditure>(`
-          SELECT * FROM expenditures
+          SELECT ${selectCols} FROM ${fromClause}
           ${whereClause}
-          ORDER BY date DESC
+          ORDER BY ${colPrefix}date DESC
           LIMIT ${pageSize} OFFSET ${offset}
         `);
 
