@@ -14,6 +14,12 @@ dist/
 .vscode/
 .idea/
 
+# AI tools
+.claude
+CLAUDE.md
+.codex/
+agents.md
+
 # OS files
 .DS_Store
 Thumbs.db
