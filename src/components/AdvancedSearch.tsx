@@ -690,8 +690,33 @@ export default function AdvancedSearch() {
   }, [autoSearch, hasSearched, performSearch]);
 
   const handleExportCSV = () => {
-    // TODO: Implement CSV export
-    alert('CSV export coming soon!');
+    const dataToExport = filters.groupByDonor && filters.transactionType === 'contributions'
+      ? aggregatedResults
+      : results;
+    if (dataToExport.length === 0) return;
+
+    const headers = Object.keys(dataToExport[0]);
+    const csvContent = [
+      headers.join(','),
+      ...dataToExport.map(row =>
+        headers.map(h => {
+          const val = (row as unknown as Record<string, unknown>)[h];
+          if (val === null || val === undefined) return '';
+          if (typeof val === 'string' && (val.includes(',') || val.includes('"') || val.includes('\n'))) {
+            return `"${val.replace(/"/g, '""')}"`;
+          }
+          return val;
+        }).join(',')
+      ),
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `tec-${filters.transactionType}-${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   const SectionHeader = ({
