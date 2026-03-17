@@ -1,8 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import TopDonorsChart from './TopDonorsChart';
 import ReportTimeline from './ReportTimeline';
-import ResultsTable from './ResultsTable';
-import Pagination from './Pagination';
+import DataTable, { exportToCSV, type SortState, type Column } from './DataTable';
 import DatabaseLoader from './DatabaseLoader';
 import {
   getFilerById,
@@ -10,12 +9,13 @@ import {
   getTopDonorsFiltered,
   getReportTimeline,
   getFilerStatsFiltered,
-  searchContributions,
+  getContributionsForFilerFull,
   formatCurrency,
+  formatDate,
   formatDateInt,
 } from '../lib/search';
 import { getPartyTag, submitPartyTag, PARTY_OPTIONS, type PartyOption, type PartyTag } from '../lib/supabase';
-import type { Filer, Contribution, LatestReport, ReportTimelinePoint } from '../lib/search';
+import type { Filer, Contribution, LatestReport, ReportTimelinePoint, SortParams } from '../lib/search';
 
 interface CandidateProfileProps {
   filerId: string;
@@ -29,6 +29,59 @@ interface TopDonor {
 
 type DatePreset = 'all' | '2025' | '2024' | '2023' | '2022' | 'custom';
 
+const CONTRIBUTION_COLUMNS: Column<Contribution>[] = [
+  {
+    key: 'contributor_name',
+    header: 'Contributor',
+    render: (row) => (
+      <div>
+        <a
+          href={`/search/contributors?q=${encodeURIComponent(row.contributor_name || '')}${row.contributor_city ? `&city=${encodeURIComponent(row.contributor_city)}` : ''}`}
+          className="font-medium text-texas-blue hover:text-blue-700 text-sm block"
+        >
+          {row.contributor_name || 'Unknown'}
+        </a>
+        {row.contributor_employer && (
+          <div className="text-xs text-slate-500">{row.contributor_employer}</div>
+        )}
+      </div>
+    ),
+  },
+  {
+    key: 'filer_name',
+    header: 'Recipient',
+    render: (row) => (
+      <a href={`/candidate?id=${row.filer_id}`} className="text-sm text-texas-blue hover:text-blue-700">
+        {row.filer_name || row.filer_id}
+      </a>
+    ),
+  },
+  {
+    key: 'amount',
+    header: 'Amount',
+    align: 'right',
+    render: (row) => (
+      <span className="font-medium text-green-700 text-sm">{formatCurrency(row.amount)}</span>
+    ),
+  },
+  {
+    key: 'date',
+    header: 'Date',
+    render: (row) => <span className="text-slate-600">{formatDate(row.date)}</span>,
+  },
+  {
+    key: 'contributor_city',
+    header: 'Location',
+    hidden: 'mobile',
+    render: (row) => (
+      <span className="text-slate-600">
+        {row.contributor_city}
+        {row.contributor_state && `, ${row.contributor_state}`}
+      </span>
+    ),
+  },
+];
+
 export default function CandidateProfile({ filerId }: CandidateProfileProps) {
   const [filer, setFiler] = useState<Filer | null>(null);
   const [latestReport, setLatestReport] = useState<LatestReport | null>(null);
@@ -36,9 +89,8 @@ export default function CandidateProfile({ filerId }: CandidateProfileProps) {
   const [reportTimeline, setReportTimeline] = useState<ReportTimelinePoint[]>([]);
   const [contributions, setContributions] = useState<Contribution[]>([]);
   const [contributionsTotal, setContributionsTotal] = useState(0);
-  const [currentPage, setCurrentPage] = useState(1);
   const [loading, setLoading] = useState(true);
-  const pageSize = 25;
+  const [contribLoading, setContribLoading] = useState(false);
 
   // Stats from itemized data
   const [totalContributions, setTotalContributions] = useState(0);
@@ -55,6 +107,9 @@ export default function CandidateProfile({ filerId }: CandidateProfileProps) {
   const [customDateTo, setCustomDateTo] = useState('');
   const [filterLoading, setFilterLoading] = useState(false);
   const [filtersApplied, setFiltersApplied] = useState(false);
+
+  // Sort state for contributions table
+  const [sortState, setSortState] = useState<SortState | null>(null);
 
   // Party tagging
   const [partyTag, setPartyTag] = useState<PartyTag | null>(null);
@@ -114,7 +169,6 @@ export default function CandidateProfile({ filerId }: CandidateProfileProps) {
     const result = await submitPartyTag(filerId, party);
 
     if (result.success) {
-      // Refresh the tag
       const newTag = await getPartyTag(filerId);
       setPartyTag(newTag);
       setShowTagDropdown(false);
@@ -134,7 +188,6 @@ export default function CandidateProfile({ filerId }: CandidateProfileProps) {
     if (!filer) return;
 
     setFilterLoading(true);
-    setCurrentPage(1);
 
     try {
       const { from, to } = getDateRange();
@@ -143,9 +196,11 @@ export default function CandidateProfile({ filerId }: CandidateProfileProps) {
         getFilerStatsFiltered(filerId, from, to),
         getTopDonorsFiltered(filerId, 10, from, to),
         getReportTimeline(filerId, from, to),
-        searchContributions(
-          { filerId, dateFrom: from, dateTo: to },
-          { page: 1, pageSize }
+        getContributionsForFilerFull(
+          filerId,
+          sortState as SortParams | undefined,
+          from,
+          to
         ),
       ]);
 
@@ -156,14 +211,14 @@ export default function CandidateProfile({ filerId }: CandidateProfileProps) {
       setTopDonors(donors);
       setReportTimeline(timeline);
       setContributions(contribResult.data);
-      setContributionsTotal(contribResult.count);
+      setContributionsTotal(contribResult.totalCount);
       setFiltersApplied(true);
     } catch (error) {
       console.error('Error applying filters:', error);
     } finally {
       setFilterLoading(false);
     }
-  }, [filer, filerId, getDateRange, pageSize]);
+  }, [filer, filerId, getDateRange, sortState]);
 
   // Load initial data when filer is loaded (with default "all" filter)
   useEffect(() => {
@@ -172,25 +227,38 @@ export default function CandidateProfile({ filerId }: CandidateProfileProps) {
     }
   }, [filer, filtersApplied, applyFilters]);
 
-  // Load contributions for table when page changes (not filter changes)
+  // Re-query contributions when sort changes
   useEffect(() => {
-    async function loadContributionsPage() {
-      if (!filer || !filtersApplied || currentPage === 1) return;
+    if (!filer || !filtersApplied) return;
 
+    async function reloadContributions() {
+      setContribLoading(true);
       try {
         const { from, to } = getDateRange();
-        const result = await searchContributions(
-          { filerId, dateFrom: from, dateTo: to },
-          { page: currentPage, pageSize }
+        const result = await getContributionsForFilerFull(
+          filerId,
+          sortState as SortParams | undefined,
+          from,
+          to
         );
         setContributions(result.data);
-        setContributionsTotal(result.count);
+        setContributionsTotal(result.totalCount);
       } catch (error) {
-        console.error('Error loading contributions:', error);
+        console.error('Error reloading contributions:', error);
+      } finally {
+        setContribLoading(false);
       }
     }
-    loadContributionsPage();
-  }, [filerId, filer, currentPage, filtersApplied, getDateRange, pageSize]);
+    reloadContributions();
+  }, [sortState]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleSort = useCallback((sort: SortState) => {
+    setSortState(sort);
+  }, []);
+
+  const handleExportCSV = useCallback(() => {
+    exportToCSV(contributions, CONTRIBUTION_COLUMNS, `tec-contributions-${filerId}-${new Date().toISOString().split('T')[0]}.csv`);
+  }, [contributions, filerId]);
 
   // Format date range for display
   const getDateRangeLabel = () => {
@@ -446,16 +514,17 @@ export default function CandidateProfile({ filerId }: CandidateProfileProps) {
               )}
             </h2>
           </div>
-          <ResultsTable type="contributions" data={contributions} />
-          <div className="p-6 border-t border-slate-200">
-            <Pagination
-              currentPage={currentPage}
-              totalPages={Math.ceil(contributionsTotal / pageSize)}
-              totalResults={contributionsTotal}
-              pageSize={pageSize}
-              onPageChange={setCurrentPage}
-            />
-          </div>
+          <DataTable
+            columns={CONTRIBUTION_COLUMNS}
+            data={contributions}
+            loading={contribLoading}
+            sortState={sortState}
+            onSort={handleSort}
+            onExportCSV={handleExportCSV}
+            rowKey={(row) => row.contribution_id || row.id || String(Math.random())}
+            totalCount={contributionsTotal}
+            emptyMessage="No contributions found for this candidate."
+          />
         </div>
       </div>
     </DatabaseLoader>

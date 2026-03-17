@@ -14,10 +14,10 @@ const R2_BASE = 'https://tec-data.joshuaru.sh';
 
 // Parquet files to load
 const PARQUET_FILES = [
-  { name: 'filers.parquet', size: 380000 },
-  { name: 'reports.parquet', size: 7500000 },
-  { name: 'expenditures.parquet', size: 86000000 },
-  { name: 'contributions_2020.parquet', size: 210000000 },
+  { name: 'filers.parquet', size: 381539 },
+  { name: 'reports.parquet', size: 7639590 },
+  { name: 'expenditures.parquet', size: 86522293 },
+  { name: 'contributions_2020.parquet', size: 209764005 },
 ] as const;
 
 // Singleton instances
@@ -949,6 +949,215 @@ export async function getFilerStatsFiltered(
       latest: contribStats[0]?.latest || null,
     },
   };
+}
+
+// ============================================
+// UNPAGINATED SEARCH FUNCTIONS
+// Return full result sets with SQL-level sorting
+// ============================================
+
+export interface FullSearchResult<T> {
+  data: T[];
+  totalCount: number;
+  capped: boolean;
+}
+
+const DEFAULT_RESULT_CAP = 5000;
+
+// Search contributions — full result set with SQL sorting
+export async function searchContributionsFull(
+  filters: SearchFilters,
+  sort?: SortParams,
+  cap: number = DEFAULT_RESULT_CAP
+): Promise<FullSearchResult<Contribution>> {
+  await initDuckDB();
+
+  const conditions: string[] = [];
+
+  if (filters.query) {
+    conditions.push(`contributor_name ILIKE '%${escapeSql(filters.query)}%'`);
+  }
+  if (filters.dateFrom) {
+    conditions.push(`date >= ${dateToInt(filters.dateFrom)}`);
+  }
+  if (filters.dateTo) {
+    conditions.push(`date <= ${dateToInt(filters.dateTo)}`);
+  }
+  if (filters.amountMin !== undefined) {
+    conditions.push(`amount >= ${filters.amountMin}`);
+  }
+  if (filters.amountMax !== undefined) {
+    conditions.push(`amount <= ${filters.amountMax}`);
+  }
+  if (filters.contributorType) {
+    conditions.push(`contributor_type = '${escapeSql(filters.contributorType)}'`);
+  }
+  if (filters.filerId) {
+    conditions.push(`filer_id = '${escapeSql(filters.filerId)}'`);
+  }
+
+  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+  let orderBy = 'ORDER BY date DESC';
+  if (sort && CONTRIBUTION_SORT_COLUMNS[sort.column]) {
+    const col = CONTRIBUTION_SORT_COLUMNS[sort.column];
+    const dir = sort.direction === 'asc' ? 'ASC' : 'DESC';
+    orderBy = `ORDER BY ${col} ${dir}`;
+  }
+
+  const countResult = await query<{ count: number }>(`
+    SELECT COUNT(*) as count FROM contributions ${whereClause}
+  `);
+  const totalCount = Number(countResult[0]?.count || 0);
+
+  const data = await query<Contribution>(`
+    SELECT * FROM contributions
+    ${whereClause}
+    ${orderBy}
+    LIMIT ${cap}
+  `);
+
+  return { data, totalCount, capped: totalCount > cap };
+}
+
+// Search filers — full result set with SQL sorting
+export async function searchFilersFull(
+  filters: SearchFilters,
+  sort?: SortParams,
+  cap: number = DEFAULT_RESULT_CAP
+): Promise<FullSearchResult<Filer>> {
+  await initDuckDB();
+
+  const conditions: string[] = [];
+
+  if (filters.query) {
+    conditions.push(`name ILIKE '%${escapeSql(filters.query)}%'`);
+  }
+  if (filters.party) {
+    conditions.push(`party = '${escapeSql(filters.party)}'`);
+  }
+  if (filters.officeType) {
+    conditions.push(`(office_held = '${escapeSql(filters.officeType)}' OR office_sought = '${escapeSql(filters.officeType)}')`);
+  }
+  if (filters.district) {
+    conditions.push(`(district_held = '${escapeSql(filters.district)}' OR district_sought = '${escapeSql(filters.district)}')`);
+  }
+  if (filters.filerType) {
+    conditions.push(`type = '${escapeSql(filters.filerType)}'`);
+  }
+
+  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+  let orderBy = 'ORDER BY name ASC';
+  if (sort && FILER_SORT_COLUMNS[sort.column]) {
+    const col = FILER_SORT_COLUMNS[sort.column];
+    const dir = sort.direction === 'asc' ? 'ASC' : 'DESC';
+    orderBy = `ORDER BY ${col} ${dir}`;
+  }
+
+  const countResult = await query<{ count: number }>(`
+    SELECT COUNT(*) as count FROM filers ${whereClause}
+  `);
+  const totalCount = Number(countResult[0]?.count || 0);
+
+  const data = await query<Filer>(`
+    SELECT * FROM filers
+    ${whereClause}
+    ${orderBy}
+    LIMIT ${cap}
+  `);
+
+  return { data, totalCount, capped: totalCount > cap };
+}
+
+// Search expenditures — full result set with SQL sorting
+export async function searchExpendituresFull(
+  filters: SearchFilters,
+  sort?: SortParams,
+  cap: number = DEFAULT_RESULT_CAP
+): Promise<FullSearchResult<Expenditure>> {
+  await initDuckDB();
+
+  const conditions: string[] = [];
+
+  if (filters.query) {
+    conditions.push(`payee_name ILIKE '%${escapeSql(filters.query)}%'`);
+  }
+  if (filters.dateFrom) {
+    conditions.push(`date >= ${dateToInt(filters.dateFrom)}`);
+  }
+  if (filters.dateTo) {
+    conditions.push(`date <= ${dateToInt(filters.dateTo)}`);
+  }
+  if (filters.amountMin !== undefined) {
+    conditions.push(`amount >= ${filters.amountMin}`);
+  }
+  if (filters.amountMax !== undefined) {
+    conditions.push(`amount <= ${filters.amountMax}`);
+  }
+  if (filters.filerId) {
+    conditions.push(`filer_id = '${escapeSql(filters.filerId)}'`);
+  }
+
+  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+  let orderBy = 'ORDER BY date DESC';
+  if (sort && EXPENDITURE_SORT_COLUMNS[sort.column]) {
+    const col = EXPENDITURE_SORT_COLUMNS[sort.column];
+    const dir = sort.direction === 'asc' ? 'ASC' : 'DESC';
+    orderBy = `ORDER BY ${col} ${dir}`;
+  }
+
+  const countResult = await query<{ count: number }>(`
+    SELECT COUNT(*) as count FROM expenditures ${whereClause}
+  `);
+  const totalCount = Number(countResult[0]?.count || 0);
+
+  const data = await query<Expenditure>(`
+    SELECT * FROM expenditures
+    ${whereClause}
+    ${orderBy}
+    LIMIT ${cap}
+  `);
+
+  return { data, totalCount, capped: totalCount > cap };
+}
+
+// Get contributions for a filer — full result set with SQL sorting
+export async function getContributionsForFilerFull(
+  filerId: string,
+  sort?: SortParams,
+  dateFrom?: string,
+  dateTo?: string,
+  cap: number = DEFAULT_RESULT_CAP
+): Promise<FullSearchResult<Contribution>> {
+  await initDuckDB();
+
+  const conditions = [`filer_id = '${escapeSql(filerId)}'`];
+  if (dateFrom) conditions.push(`date >= ${dateToInt(dateFrom)}`);
+  if (dateTo) conditions.push(`date <= ${dateToInt(dateTo)}`);
+  const whereClause = `WHERE ${conditions.join(' AND ')}`;
+
+  let orderBy = 'ORDER BY date DESC';
+  if (sort && CONTRIBUTION_SORT_COLUMNS[sort.column]) {
+    const col = CONTRIBUTION_SORT_COLUMNS[sort.column];
+    const dir = sort.direction === 'asc' ? 'ASC' : 'DESC';
+    orderBy = `ORDER BY ${col} ${dir}`;
+  }
+
+  const countResult = await query<{ count: number }>(`
+    SELECT COUNT(*) as count FROM contributions ${whereClause}
+  `);
+  const totalCount = Number(countResult[0]?.count || 0);
+
+  const data = await query<Contribution>(`
+    SELECT * FROM contributions
+    ${whereClause}
+    ${orderBy}
+    LIMIT ${cap}
+  `);
+
+  return { data, totalCount, capped: totalCount > cap };
 }
 
 export function isDuckDBReady(): boolean {

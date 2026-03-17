@@ -1,13 +1,65 @@
 import { useState, useEffect, useCallback } from 'react';
 import FacetedFilters, { type FilterValues } from './FacetedFilters';
-import ResultsTable from './ResultsTable';
-import Pagination from './Pagination';
+import DataTable, { exportToCSV, type SortState, type Column } from './DataTable';
 import DatabaseLoader from './DatabaseLoader';
-import { searchContributions, type SearchFilters, type Contribution, type SortParams } from '../lib/search';
+import { searchContributionsFull, formatCurrency, formatDate, type SearchFilters, type Contribution, type SortParams } from '../lib/search';
 
 interface ContributorSearchProps {
   initialQuery?: string;
 }
+
+const COLUMNS: Column<Contribution>[] = [
+  {
+    key: 'contributor_name',
+    header: 'Contributor',
+    render: (row) => (
+      <div>
+        <a
+          href={`/search/contributors?q=${encodeURIComponent(row.contributor_name || '')}${row.contributor_city ? `&city=${encodeURIComponent(row.contributor_city)}` : ''}`}
+          className="font-medium text-texas-blue hover:text-blue-700 text-sm block"
+        >
+          {row.contributor_name || 'Unknown'}
+        </a>
+        {row.contributor_employer && (
+          <div className="text-xs text-slate-500">{row.contributor_employer}</div>
+        )}
+      </div>
+    ),
+  },
+  {
+    key: 'filer_name',
+    header: 'Recipient',
+    render: (row) => (
+      <a href={`/candidate?id=${row.filer_id}`} className="text-sm text-texas-blue hover:text-blue-700">
+        {row.filer_name || row.filer_id}
+      </a>
+    ),
+  },
+  {
+    key: 'amount',
+    header: 'Amount',
+    align: 'right',
+    render: (row) => (
+      <span className="font-medium text-green-700 text-sm">{formatCurrency(row.amount)}</span>
+    ),
+  },
+  {
+    key: 'date',
+    header: 'Date',
+    render: (row) => <span className="text-slate-600">{formatDate(row.date)}</span>,
+  },
+  {
+    key: 'contributor_city',
+    header: 'Location',
+    hidden: 'mobile',
+    render: (row) => (
+      <span className="text-slate-600">
+        {row.contributor_city}
+        {row.contributor_state && `, ${row.contributor_state}`}
+      </span>
+    ),
+  },
+];
 
 export default function ContributorSearch({ initialQuery = '' }: ContributorSearchProps) {
   const [query, setQuery] = useState(initialQuery);
@@ -23,13 +75,10 @@ export default function ContributorSearch({ initialQuery = '' }: ContributorSear
   });
   const [results, setResults] = useState<Contribution[]>([]);
   const [totalCount, setTotalCount] = useState(0);
-  const [currentPage, setCurrentPage] = useState(1);
   const [loading, setLoading] = useState(false);
   const [initialized, setInitialized] = useState(false);
-  const [sortState, setSortState] = useState<SortParams | null>(null);
-  const pageSize = 50;
+  const [sortState, setSortState] = useState<SortState | null>(null);
 
-  // Read URL parameters client-side on mount
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
@@ -53,51 +102,40 @@ export default function ContributorSearch({ initialQuery = '' }: ContributorSear
         contributorType: filters.contributorType || undefined,
       };
 
-      const result = await searchContributions(searchFilters, {
-        page: currentPage,
-        pageSize,
-        sort: sortState || undefined,
-      });
+      const result = await searchContributionsFull(
+        searchFilters,
+        sortState as SortParams | undefined
+      );
 
       setResults(result.data);
-      setTotalCount(result.count);
+      setTotalCount(result.totalCount);
     } catch (error) {
       console.error('Search error:', error);
     } finally {
       setLoading(false);
     }
-  }, [query, filters, currentPage, sortState]);
+  }, [query, filters, sortState]);
 
-  // Run search when initialized (after URL params are read) or when page/filters/sort change
   useEffect(() => {
     if (initialized) {
       performSearch();
     }
-  }, [initialized, currentPage, filters, sortState]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [initialized, filters, sortState]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleFilterChange = (newFilters: FilterValues) => {
     setFilters(newFilters);
-    setCurrentPage(1);
   };
 
-  const handlePageChange = (page: number) => {
-    setCurrentPage(page);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
+  const handleSort = useCallback((sort: SortState) => {
+    setSortState(sort);
+  }, []);
 
-  const handleSortChange = (newSort: SortParams | null) => {
-    setSortState(newSort);
-    setCurrentPage(1); // Reset to page 1 when sort changes
-  };
-
-  const handleExportCSV = () => {
-    // TODO: Implement CSV export
-    alert('CSV export coming soon!');
-  };
+  const handleExportCSV = useCallback(() => {
+    exportToCSV(results, COLUMNS, `tec-contributions-${new Date().toISOString().split('T')[0]}.csv`);
+  }, [results]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    setCurrentPage(1);
     performSearch();
   };
 
@@ -138,38 +176,20 @@ export default function ContributorSearch({ initialQuery = '' }: ContributorSear
         showContributorFilters={true}
       />
 
-      {/* Results Header */}
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-slate-900">
-          {loading ? 'Searching...' : `${totalCount.toLocaleString()} contributions found`}
-        </h2>
-        <button
-          onClick={handleExportCSV}
-          className="px-4 py-2 text-sm font-medium text-texas-blue border border-texas-blue rounded-lg hover:bg-blue-50 transition-colors"
-        >
-          Export CSV
-        </button>
-      </div>
-
       {/* Results Table */}
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-        <ResultsTable
-          type="contributions"
+        <DataTable
+          columns={COLUMNS}
           data={results}
           loading={loading}
           sortState={sortState}
-          onSortChange={handleSortChange}
+          onSort={handleSort}
+          onExportCSV={handleExportCSV}
+          rowKey={(row) => row.contribution_id || row.id || String(Math.random())}
+          totalCount={totalCount}
+          emptyMessage="No contributions found. Try adjusting your search criteria."
         />
       </div>
-
-      {/* Pagination */}
-      <Pagination
-        currentPage={currentPage}
-        totalPages={Math.ceil(totalCount / pageSize)}
-        totalResults={totalCount}
-        pageSize={pageSize}
-        onPageChange={handlePageChange}
-      />
     </div>
     </DatabaseLoader>
   );

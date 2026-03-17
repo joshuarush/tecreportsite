@@ -1,14 +1,62 @@
 import { useState, useEffect, useCallback } from 'react';
 import FacetedFilters, { type FilterValues } from './FacetedFilters';
-import ResultsTable from './ResultsTable';
-import Pagination from './Pagination';
+import DataTable, { exportToCSV, type SortState, type Column } from './DataTable';
 import DatabaseLoader from './DatabaseLoader';
-import { searchFilers, type SearchFilters, type SortParams } from '../lib/search';
-import type { Filer } from '../lib/search';
+import { searchFilersFull, type SearchFilters, type SortParams, type Filer } from '../lib/search';
 
 interface CandidateSearchProps {
   initialQuery?: string;
 }
+
+const COLUMNS: Column<Filer>[] = [
+  {
+    key: 'name',
+    header: 'Name',
+    render: (row) => (
+      <a href={`/candidate?id=${row.id}`} className="font-medium text-texas-blue hover:text-blue-700 text-sm">
+        {row.name}
+      </a>
+    ),
+  },
+  {
+    key: 'type',
+    header: 'Type',
+    render: (row) => <span className="text-slate-600">{row.type || '—'}</span>,
+  },
+  {
+    key: 'office_held',
+    header: 'Office',
+    render: (row) => (
+      <span className="text-slate-600">
+        {row.office_held || '—'}
+        {row.office_district && ` - District ${row.office_district}`}
+      </span>
+    ),
+  },
+  {
+    key: 'party',
+    header: 'Party',
+    render: (row) =>
+      row.party ? (
+        <span
+          className={`inline-flex px-2 py-0.5 text-xs font-medium rounded-full ${
+            row.party === 'REPUBLICAN'
+              ? 'bg-red-100 text-red-800'
+              : row.party === 'DEMOCRAT'
+                ? 'bg-blue-100 text-blue-800'
+                : 'bg-slate-100 text-slate-800'
+          }`}
+        >
+          {row.party}
+        </span>
+      ) : null,
+  },
+  {
+    key: 'status',
+    header: 'Status',
+    render: (row) => <span className="text-slate-600">{row.status || '—'}</span>,
+  },
+];
 
 export default function CandidateSearch({ initialQuery = '' }: CandidateSearchProps) {
   const [query, setQuery] = useState(initialQuery);
@@ -24,10 +72,8 @@ export default function CandidateSearch({ initialQuery = '' }: CandidateSearchPr
   });
   const [results, setResults] = useState<Filer[]>([]);
   const [totalCount, setTotalCount] = useState(0);
-  const [currentPage, setCurrentPage] = useState(1);
   const [loading, setLoading] = useState(false);
-  const [sortState, setSortState] = useState<SortParams | null>(null);
-  const pageSize = 50;
+  const [sortState, setSortState] = useState<SortState | null>(null);
 
   const performSearch = useCallback(async () => {
     setLoading(true);
@@ -39,44 +85,38 @@ export default function CandidateSearch({ initialQuery = '' }: CandidateSearchPr
         filerType: filters.filerType || undefined,
       };
 
-      const result = await searchFilers(searchFilters, {
-        page: currentPage,
-        pageSize,
-        sort: sortState || undefined,
-      });
+      const result = await searchFilersFull(
+        searchFilters,
+        sortState as SortParams | undefined
+      );
 
       setResults(result.data);
-      setTotalCount(result.count);
+      setTotalCount(result.totalCount);
     } catch (error) {
       console.error('Search error:', error);
     } finally {
       setLoading(false);
     }
-  }, [query, filters, currentPage, sortState]);
+  }, [query, filters, sortState]);
 
-  // Run search on mount and when page/filters/sort change
   useEffect(() => {
     performSearch();
-  }, [currentPage, filters, sortState]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [filters, sortState]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleFilterChange = (newFilters: FilterValues) => {
     setFilters(newFilters);
-    setCurrentPage(1);
   };
 
-  const handlePageChange = (page: number) => {
-    setCurrentPage(page);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
+  const handleSort = useCallback((sort: SortState) => {
+    setSortState(sort);
+  }, []);
 
-  const handleSortChange = (newSort: SortParams | null) => {
-    setSortState(newSort);
-    setCurrentPage(1);
-  };
+  const handleExportCSV = useCallback(() => {
+    exportToCSV(results, COLUMNS, `tec-filers-${new Date().toISOString().split('T')[0]}.csv`);
+  }, [results]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    setCurrentPage(1);
     performSearch();
   };
 
@@ -118,32 +158,20 @@ export default function CandidateSearch({ initialQuery = '' }: CandidateSearchPr
         showCandidateFilters={true}
       />
 
-      {/* Results Header */}
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-slate-900">
-          {loading ? 'Searching...' : `${totalCount.toLocaleString()} committees & candidates found`}
-        </h2>
-      </div>
-
       {/* Results Table */}
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-        <ResultsTable
-          type="filers"
+        <DataTable
+          columns={COLUMNS}
           data={results}
           loading={loading}
           sortState={sortState}
-          onSortChange={handleSortChange}
+          onSort={handleSort}
+          onExportCSV={handleExportCSV}
+          rowKey={(row) => row.id}
+          totalCount={totalCount}
+          emptyMessage="No committees or candidates found. Try adjusting your search criteria."
         />
       </div>
-
-      {/* Pagination */}
-      <Pagination
-        currentPage={currentPage}
-        totalPages={Math.ceil(totalCount / pageSize)}
-        totalResults={totalCount}
-        pageSize={pageSize}
-        onPageChange={handlePageChange}
-      />
     </div>
     </DatabaseLoader>
   );

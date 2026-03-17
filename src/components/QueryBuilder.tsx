@@ -1,7 +1,7 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import { query as duckdbQuery, formatCurrency, formatDate, waitForInit } from '../lib/duckdb';
 import DatabaseLoader from './DatabaseLoader';
-import { SortableHeader, sortData, type SortState } from './ResultsTable';
+import DataTable, { type SortState, type Column } from './DataTable';
 
 // Query condition types
 type Operator = 'equals' | 'not_equals' | 'contains' | 'not_contains' | 'starts_with' | 'ends_with' |
@@ -162,23 +162,11 @@ export default function QueryBuilder() {
   const [error, setError] = useState<string | null>(null);
   const [queryPreview, setQueryPreview] = useState('');
   const [executionTime, setExecutionTime] = useState<number | null>(null);
-  const [sortState, setSortState] = useState<SortState>({ column: null, direction: null });
+  const [sortState, setSortState] = useState<SortState | null>(null);
 
-  const handleSort = (column: string) => {
-    setSortState(prev => {
-      if (prev.column !== column) {
-        return { column, direction: 'asc' };
-      }
-      if (prev.direction === 'asc') {
-        return { column, direction: 'desc' };
-      }
-      return { column: null, direction: null };
-    });
-  };
-
-  // Memoize sorted results
-  const sortedResults = useMemo(() => sortData(results, sortState), [results, sortState]);
-  const sortedAggregatedResults = useMemo(() => sortData(aggregatedResults, sortState), [aggregatedResults, sortState]);
+  const handleSort = useCallback((sort: SortState) => {
+    setSortState(sort);
+  }, []);
 
   const fields = FIELDS[dataSource];
 
@@ -400,15 +388,22 @@ export default function QueryBuilder() {
         if (aggregation.metrics.includes('max')) metrics.push('MAX(amount) as _max');
 
         const metricsStr = metrics.length > 0 ? `, ${metrics.join(', ')}` : '';
-        const orderField = `_${aggregation.sortBy}`;
-        const orderDir = aggregation.sortDir.toUpperCase();
+
+        // Use sort state if available, otherwise fall back to aggregation config
+        let orderBy: string;
+        if (sortState) {
+          const dir = sortState.direction === 'asc' ? 'ASC' : 'DESC';
+          orderBy = `ORDER BY ${sortState.column} ${dir}`;
+        } else {
+          orderBy = `ORDER BY _${aggregation.sortBy} ${aggregation.sortDir.toUpperCase()}`;
+        }
 
         sql = `
           SELECT ${groupByFields}${metricsStr}
           FROM ${dataSource}
           ${whereStr}
           GROUP BY ${groupByFields}
-          ORDER BY ${orderField} ${orderDir}
+          ${orderBy}
           LIMIT ${limit}
         `;
 
@@ -418,12 +413,20 @@ export default function QueryBuilder() {
           ${whereStr}
         `;
       } else {
-        // Regular query
+        // Regular query — use sort state or default
+        let orderBy: string;
+        if (sortState) {
+          const dir = sortState.direction === 'asc' ? 'ASC' : 'DESC';
+          orderBy = `ORDER BY ${sortState.column} ${dir}`;
+        } else {
+          orderBy = `ORDER BY ${DEFAULT_ORDER_BY[dataSource]}`;
+        }
+
         sql = `
           SELECT *
           FROM ${dataSource}
           ${whereStr}
-          ORDER BY ${DEFAULT_ORDER_BY[dataSource]}
+          ${orderBy}
           LIMIT ${limit}
         `;
 
@@ -460,21 +463,70 @@ export default function QueryBuilder() {
     }
   };
 
-  const exportCSV = () => {
+  // Build dynamic columns from result data
+  const dynamicColumns = useMemo((): Column<any>[] => {
+    const dataToUse = aggregation.enabled ? aggregatedResults : results;
+    if (dataToUse.length === 0) return [];
+
+    if (aggregation.enabled) {
+      const cols: Column<any>[] = [];
+      for (const field of aggregation.groupBy) {
+        cols.push({
+          key: field,
+          header: fields.find(f => f.value === field)?.label || field,
+          render: (row: any) => <span className="text-slate-900">{row[field] || '—'}</span>,
+        });
+      }
+      if (aggregation.metrics.includes('sum')) {
+        cols.push({ key: '_sum', header: 'Total Amount', align: 'right', render: (row: any) => <span className="font-medium text-green-700">{formatCurrency(row._sum)}</span> });
+      }
+      if (aggregation.metrics.includes('count')) {
+        cols.push({ key: '_count', header: 'Count', align: 'right', render: (row: any) => <span>{row._count?.toLocaleString()}</span> });
+      }
+      if (aggregation.metrics.includes('avg')) {
+        cols.push({ key: '_avg', header: 'Average', align: 'right', render: (row: any) => <span className="text-slate-600">{formatCurrency(row._avg)}</span> });
+      }
+      if (aggregation.metrics.includes('min')) {
+        cols.push({ key: '_min', header: 'Min', align: 'right', render: (row: any) => <span className="text-slate-600">{formatCurrency(row._min)}</span> });
+      }
+      if (aggregation.metrics.includes('max')) {
+        cols.push({ key: '_max', header: 'Max', align: 'right', render: (row: any) => <span className="text-slate-600">{formatCurrency(row._max)}</span> });
+      }
+      return cols;
+    }
+
+    // Standard results: show first 8 non-internal columns
+    return Object.keys(dataToUse[0])
+      .filter(k => !k.startsWith('_'))
+      .slice(0, 8)
+      .map(key => ({
+        key,
+        header: fields.find(f => f.value === key)?.label || key,
+        render: (row: any) => {
+          const val = row[key];
+          if (key === 'amount') return <span className="font-medium text-green-700">{formatCurrency(val)}</span>;
+          if (key.includes('date') && val) return <span className="text-slate-600">{formatDate(val)}</span>;
+          return <span className="text-slate-900">{val?.toString() || '—'}</span>;
+        },
+      }));
+  }, [results, aggregatedResults, aggregation, fields]);
+
+  const handleExportCSV = useCallback(() => {
     const dataToExport = aggregation.enabled ? aggregatedResults : results;
     if (dataToExport.length === 0) return;
 
     const headers = Object.keys(dataToExport[0]);
     const csvContent = [
       headers.join(','),
-      ...dataToExport.map(row =>
+      ...dataToExport.map((row: any) =>
         headers.map(h => {
           const val = row[h];
           if (val === null || val === undefined) return '';
-          if (typeof val === 'string' && (val.includes(',') || val.includes('"'))) {
-            return `"${val.replace(/"/g, '""')}"`;
+          const str = String(val);
+          if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+            return `"${str.replace(/"/g, '""')}"`;
           }
-          return val;
+          return str;
         }).join(',')
       ),
     ].join('\n');
@@ -486,7 +538,14 @@ export default function QueryBuilder() {
     a.download = `tec-export-${new Date().toISOString().split('T')[0]}.csv`;
     a.click();
     URL.revokeObjectURL(url);
-  };
+  }, [results, aggregatedResults, aggregation.enabled]);
+
+  // Re-execute query when sort changes (only if we already have results)
+  useEffect(() => {
+    if (sortState && (results.length > 0 || aggregatedResults.length > 0)) {
+      executeQuery();
+    }
+  }, [sortState]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const ConditionRow = ({ condition, groupId }: { condition: Condition; groupId: string }) => {
     const availableOperators = getAvailableOperators(condition.field);
@@ -779,14 +838,6 @@ export default function QueryBuilder() {
             >
               {loading ? 'Executing...' : 'Execute Query'}
             </button>
-            {results.length > 0 && (
-              <button
-                onClick={exportCSV}
-                className="px-6 py-3 border border-texas-blue text-texas-blue font-semibold rounded-xl hover:bg-blue-50 transition-colors"
-              >
-                Export CSV
-              </button>
-            )}
           </div>
         </div>
 
@@ -814,93 +865,18 @@ export default function QueryBuilder() {
       {/* Results */}
       {(results.length > 0 || aggregatedResults.length > 0) && (
         <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-          <div className="p-4 border-b border-slate-200 bg-slate-50">
-            <h3 className="font-semibold text-slate-900">
-              {aggregation.enabled ? 'Aggregated Results' : 'Query Results'}
-              <span className="ml-2 text-sm font-normal text-slate-500">
-                ({(aggregation.enabled ? aggregatedResults : results).length} rows)
-              </span>
-            </h3>
-          </div>
-
-          <div className="overflow-x-auto max-h-[600px] overflow-y-auto">
-            <table className="w-full">
-              <thead className="bg-slate-50 sticky top-0">
-                <tr>
-                  {aggregation.enabled && aggregatedResults.length > 0 ? (
-                    <>
-                      {aggregation.groupBy.map(field => (
-                        <SortableHeader
-                          key={field}
-                          label={fields.find(f => f.value === field)?.label || field}
-                          column={field}
-                          sortState={sortState}
-                          onSort={handleSort}
-                          className="text-left"
-                        />
-                      ))}
-                      {aggregation.metrics.includes('sum') && (
-                        <SortableHeader label="Total Amount" column="_sum" sortState={sortState} onSort={handleSort} className="text-right" />
-                      )}
-                      {aggregation.metrics.includes('count') && (
-                        <SortableHeader label="Count" column="_count" sortState={sortState} onSort={handleSort} className="text-right" />
-                      )}
-                      {aggregation.metrics.includes('avg') && (
-                        <SortableHeader label="Average" column="_avg" sortState={sortState} onSort={handleSort} className="text-right" />
-                      )}
-                    </>
-                  ) : results.length > 0 && (
-                    Object.keys(results[0]).filter(k => !k.startsWith('_')).slice(0, 8).map(key => (
-                      <SortableHeader
-                        key={key}
-                        label={fields.find(f => f.value === key)?.label || key}
-                        column={key}
-                        sortState={sortState}
-                        onSort={handleSort}
-                        className="text-left"
-                      />
-                    ))
-                  )}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {aggregation.enabled ? sortedAggregatedResults.map((row, i) => (
-                  <tr key={i} className="hover:bg-slate-50">
-                    {aggregation.groupBy.map(field => (
-                      <td key={field} className="px-4 py-3 text-sm text-slate-900">
-                        {row[field] || '—'}
-                      </td>
-                    ))}
-                    {aggregation.metrics.includes('sum') && (
-                      <td className="px-4 py-3 text-sm text-right font-medium text-green-700">
-                        {formatCurrency(row._sum)}
-                      </td>
-                    )}
-                    {aggregation.metrics.includes('count') && (
-                      <td className="px-4 py-3 text-sm text-right text-slate-900">
-                        {row._count?.toLocaleString()}
-                      </td>
-                    )}
-                    {aggregation.metrics.includes('avg') && (
-                      <td className="px-4 py-3 text-sm text-right text-slate-600">
-                        {formatCurrency(row._avg)}
-                      </td>
-                    )}
-                  </tr>
-                )) : sortedResults.map((row, i) => (
-                  <tr key={i} className="hover:bg-slate-50">
-                    {Object.entries(row).filter(([k]) => !k.startsWith('_')).slice(0, 8).map(([key, val]) => (
-                      <td key={key} className="px-4 py-3 text-sm text-slate-900">
-                        {key === 'amount' ? formatCurrency(val as number) :
-                          key.includes('date') && val ? formatDate(val as string) :
-                          val?.toString() || '—'}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <DataTable
+            columns={dynamicColumns}
+            data={aggregation.enabled ? aggregatedResults : results}
+            loading={loading}
+            sortState={sortState}
+            onSort={handleSort}
+            onExportCSV={handleExportCSV}
+            rowKey={(row: any) => row.id || row.contribution_id || row.expenditure_id || row.report_id || JSON.stringify(row).slice(0, 100)}
+            totalCount={totalCount}
+            resultCap={limit}
+            maxHeight="600px"
+          />
         </div>
       )}
     </div>
