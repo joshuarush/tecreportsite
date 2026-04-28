@@ -18,6 +18,7 @@ dist/
 .claude
 CLAUDE.md
 .codex/
+.superpowers/
 agents.md
 
 # OS files
