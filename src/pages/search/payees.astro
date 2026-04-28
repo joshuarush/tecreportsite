@@ -1,0 +1,26 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import PayeeSearch from '../../components/PayeeSearch';
+
+const query = Astro.url.searchParams.get('q') || '';
+---
+
+<BaseLayout title="Search Payees" description="Search Texas campaign finance expenditures by payee or vendor name">
+  <div class="bg-slate-50 min-h-screen">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div class="mb-8">
+        <nav class="text-sm text-slate-500 mb-2">
+          <a href="/" class="hover:text-texas-blue">Home</a>
+          <span class="mx-2">›</span>
+          <span class="text-slate-900">Payee Search</span>
+        </nav>
+        <h1 class="text-3xl font-bold text-slate-900">Search Payees</h1>
+        <p class="text-slate-600 mt-2">
+          Find campaign expenditures to vendors, consultants, committees, and other payees in Texas
+        </p>
+      </div>
+
+      <PayeeSearch client:load initialQuery={query} />
+    </div>
+  </div>
+</BaseLayout>

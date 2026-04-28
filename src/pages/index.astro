@@ -74,6 +74,15 @@ import BaseLayout from '../layouts/BaseLayout.astro';
             </span>
             Donors
           </a>
+          <a href="/search/payees" class="nav-item">
+            <span class="nav-icon">
+              <svg viewBox="0 0 16 16" fill="currentColor">
+                <path d="M2 3.75A1.75 1.75 0 013.75 2h8.5A1.75 1.75 0 0114 3.75v8.5A1.75 1.75 0 0112.25 14h-8.5A1.75 1.75 0 012 12.25v-8.5zM3.75 3.5a.25.25 0 00-.25.25v8.5c0 .138.112.25.25.25h8.5a.25.25 0 00.25-.25v-8.5a.25.25 0 00-.25-.25h-8.5z"/>
+                <path d="M5 6h6v1H5V6zm0 3h4v1H5V9z"/>
+              </svg>
+            </span>
+            Payees
+          </a>
         </nav>
 
         <div class="sidebar-footer">
@@ -164,6 +173,19 @@ import BaseLayout from '../layouts/BaseLayout.astro';
               </div>
               <kbd class="action-kbd">D</kbd>
             </a>
+
+            <a href="/search/payees" class="action-card">
+              <div class="action-icon action-icon-blue">
+                <svg viewBox="0 0 20 20" fill="currentColor">
+                  <path fill-rule="evenodd" d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm1 4a1 1 0 000 2h10a1 1 0 100-2H5zm0 4a1 1 0 100 2h6a1 1 0 100-2H5z" clip-rule="evenodd" />
+                </svg>
+              </div>
+              <div class="action-content">
+                <span class="action-title">Payee Lookup</span>
+                <span class="action-desc">Find expenditures by vendor or payee</span>
+              </div>
+              <kbd class="action-kbd">P</kbd>
+            </a>
           </div>
         </div>
 
@@ -193,6 +215,10 @@ import BaseLayout from '../layouts/BaseLayout.astro';
             <div class="shortcut">
               <kbd>D</kbd>
               <span>Donors</span>
+            </div>
+            <div class="shortcut">
+              <kbd>P</kbd>
+              <span>Payees</span>
             </div>
           </div>
         </div>
@@ -247,6 +273,10 @@ import BaseLayout from '../layouts/BaseLayout.astro';
       case 'd':
       case 'D':
         window.location.href = '/search/contributors';
+        break;
+      case 'p':
+      case 'P':
+        window.location.href = '/search/payees';
         break;
     }
   });

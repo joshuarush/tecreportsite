@@ -10,12 +10,14 @@ import {
   getReportTimeline,
   getFilerStatsFiltered,
   getContributionsForFilerFull,
+  getExpendituresForFilerFull,
+  getLedgerForFilerFull,
   formatCurrency,
-  formatDate,
   formatDateInt,
 } from '../lib/search';
-import { getPartyTag, submitPartyTag, PARTY_OPTIONS, type PartyOption, type PartyTag } from '../lib/supabase';
-import type { Filer, Contribution, LatestReport, ReportTimelinePoint, SortParams } from '../lib/search';
+import { CONTRIBUTION_COLUMNS, EXPENDITURE_COLUMNS, LEDGER_COLUMNS } from '../lib/transaction-columns';
+import { getPartyTag, submitPartyTag, PARTY_OPTIONS, type PartyOption, type PartyTag } from '../lib/party-tags';
+import type { Filer, Contribution, Expenditure, LedgerTransaction, LatestReport, ReportTimelinePoint, SortParams } from '../lib/search';
 
 interface CandidateProfileProps {
   filerId: string;
@@ -28,59 +30,7 @@ interface TopDonor {
 }
 
 type DatePreset = 'all' | '2025' | '2024' | '2023' | '2022' | 'custom';
-
-const CONTRIBUTION_COLUMNS: Column<Contribution>[] = [
-  {
-    key: 'contributor_name',
-    header: 'Contributor',
-    render: (row) => (
-      <div>
-        <a
-          href={`/search/contributors?q=${encodeURIComponent(row.contributor_name || '')}${row.contributor_city ? `&city=${encodeURIComponent(row.contributor_city)}` : ''}`}
-          className="font-medium text-texas-blue hover:text-blue-700 text-sm block"
-        >
-          {row.contributor_name || 'Unknown'}
-        </a>
-        {row.contributor_employer && (
-          <div className="text-xs text-slate-500">{row.contributor_employer}</div>
-        )}
-      </div>
-    ),
-  },
-  {
-    key: 'filer_name',
-    header: 'Recipient',
-    render: (row) => (
-      <a href={`/candidate?id=${row.filer_id}`} className="text-sm text-texas-blue hover:text-blue-700">
-        {row.filer_name || row.filer_id}
-      </a>
-    ),
-  },
-  {
-    key: 'amount',
-    header: 'Amount',
-    align: 'right',
-    render: (row) => (
-      <span className="font-medium text-green-700 text-sm">{formatCurrency(row.amount)}</span>
-    ),
-  },
-  {
-    key: 'date',
-    header: 'Date',
-    render: (row) => <span className="text-slate-600">{formatDate(row.date)}</span>,
-  },
-  {
-    key: 'contributor_city',
-    header: 'Location',
-    hidden: 'mobile',
-    render: (row) => (
-      <span className="text-slate-600">
-        {row.contributor_city}
-        {row.contributor_state && `, ${row.contributor_state}`}
-      </span>
-    ),
-  },
-];
+type TransactionTab = 'contributions' | 'expenditures' | 'ledger';
 
 export default function CandidateProfile({ filerId }: CandidateProfileProps) {
   const [filer, setFiler] = useState<Filer | null>(null);
@@ -88,14 +38,21 @@ export default function CandidateProfile({ filerId }: CandidateProfileProps) {
   const [topDonors, setTopDonors] = useState<TopDonor[]>([]);
   const [reportTimeline, setReportTimeline] = useState<ReportTimelinePoint[]>([]);
   const [contributions, setContributions] = useState<Contribution[]>([]);
+  const [expenditures, setExpenditures] = useState<Expenditure[]>([]);
+  const [ledger, setLedger] = useState<LedgerTransaction[]>([]);
   const [contributionsTotal, setContributionsTotal] = useState(0);
+  const [expendituresTotal, setExpendituresTotal] = useState(0);
+  const [ledgerTotal, setLedgerTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [contribLoading, setContribLoading] = useState(false);
+  const [expendLoading, setExpendLoading] = useState(false);
+  const [ledgerLoading, setLedgerLoading] = useState(false);
 
   // Stats from itemized data
   const [totalContributions, setTotalContributions] = useState(0);
   const [totalExpended, setTotalExpended] = useState(0);
   const [contributionCount, setContributionCount] = useState(0);
+  const [expenditureCount, setExpenditureCount] = useState(0);
   const [dataDateRange, setDataDateRange] = useState<{ earliest: number | null; latest: number | null }>({
     earliest: null,
     latest: null,
@@ -108,8 +65,10 @@ export default function CandidateProfile({ filerId }: CandidateProfileProps) {
   const [filterLoading, setFilterLoading] = useState(false);
   const [filtersApplied, setFiltersApplied] = useState(false);
 
-  // Sort state for contributions table
-  const [sortState, setSortState] = useState<SortState | null>(null);
+  const [activeTransactionTab, setActiveTransactionTab] = useState<TransactionTab>('contributions');
+  const [contributionSortState, setContributionSortState] = useState<SortState | null>(null);
+  const [expenditureSortState, setExpenditureSortState] = useState<SortState | null>(null);
+  const [ledgerSortState, setLedgerSortState] = useState<SortState | null>(null);
 
   // Party tagging
   const [partyTag, setPartyTag] = useState<PartyTag | null>(null);
@@ -166,7 +125,7 @@ export default function CandidateProfile({ filerId }: CandidateProfileProps) {
     setTagSubmitting(true);
     setTagError(null);
 
-    const result = await submitPartyTag(filerId, party);
+    const result = await submitPartyTag(filerId, party, filer?.name);
 
     if (result.success) {
       const newTag = await getPartyTag(filerId);
@@ -192,13 +151,25 @@ export default function CandidateProfile({ filerId }: CandidateProfileProps) {
     try {
       const { from, to } = getDateRange();
 
-      const [stats, donors, timeline, contribResult] = await Promise.all([
+      const [stats, donors, timeline, contribResult, expendResult, ledgerResult] = await Promise.all([
         getFilerStatsFiltered(filerId, from, to),
         getTopDonorsFiltered(filerId, 10, from, to),
         getReportTimeline(filerId, from, to),
         getContributionsForFilerFull(
           filerId,
-          sortState as SortParams | undefined,
+          contributionSortState as SortParams | undefined,
+          from,
+          to
+        ),
+        getExpendituresForFilerFull(
+          filerId,
+          expenditureSortState as SortParams | undefined,
+          from,
+          to
+        ),
+        getLedgerForFilerFull(
+          filerId,
+          ledgerSortState as SortParams | undefined,
           from,
           to
         ),
@@ -207,18 +178,23 @@ export default function CandidateProfile({ filerId }: CandidateProfileProps) {
       setTotalContributions(stats.totalContributions);
       setTotalExpended(stats.totalExpended);
       setContributionCount(stats.contributionCount);
+      setExpenditureCount(stats.expenditureCount);
       setDataDateRange(stats.dateRange);
       setTopDonors(donors);
       setReportTimeline(timeline);
       setContributions(contribResult.data);
       setContributionsTotal(contribResult.totalCount);
+      setExpenditures(expendResult.data);
+      setExpendituresTotal(expendResult.totalCount);
+      setLedger(ledgerResult.data);
+      setLedgerTotal(ledgerResult.totalCount);
       setFiltersApplied(true);
     } catch (error) {
       console.error('Error applying filters:', error);
     } finally {
       setFilterLoading(false);
     }
-  }, [filer, filerId, getDateRange, sortState]);
+  }, [filer, filerId, getDateRange, contributionSortState, expenditureSortState, ledgerSortState]);
 
   // Load initial data when filer is loaded (with default "all" filter)
   useEffect(() => {
@@ -227,7 +203,7 @@ export default function CandidateProfile({ filerId }: CandidateProfileProps) {
     }
   }, [filer, filtersApplied, applyFilters]);
 
-  // Re-query contributions when sort changes
+  // Re-query active profile tables when their sort changes
   useEffect(() => {
     if (!filer || !filtersApplied) return;
 
@@ -237,7 +213,7 @@ export default function CandidateProfile({ filerId }: CandidateProfileProps) {
         const { from, to } = getDateRange();
         const result = await getContributionsForFilerFull(
           filerId,
-          sortState as SortParams | undefined,
+          contributionSortState as SortParams | undefined,
           from,
           to
         );
@@ -250,15 +226,76 @@ export default function CandidateProfile({ filerId }: CandidateProfileProps) {
       }
     }
     reloadContributions();
-  }, [sortState]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [contributionSortState]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!filer || !filtersApplied) return;
+
+    async function reloadExpenditures() {
+      setExpendLoading(true);
+      try {
+        const { from, to } = getDateRange();
+        const result = await getExpendituresForFilerFull(
+          filerId,
+          expenditureSortState as SortParams | undefined,
+          from,
+          to
+        );
+        setExpenditures(result.data);
+        setExpendituresTotal(result.totalCount);
+      } catch (error) {
+        console.error('Error reloading expenditures:', error);
+      } finally {
+        setExpendLoading(false);
+      }
+    }
+    reloadExpenditures();
+  }, [expenditureSortState]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!filer || !filtersApplied) return;
+
+    async function reloadLedger() {
+      setLedgerLoading(true);
+      try {
+        const { from, to } = getDateRange();
+        const result = await getLedgerForFilerFull(
+          filerId,
+          ledgerSortState as SortParams | undefined,
+          from,
+          to
+        );
+        setLedger(result.data);
+        setLedgerTotal(result.totalCount);
+      } catch (error) {
+        console.error('Error reloading ledger:', error);
+      } finally {
+        setLedgerLoading(false);
+      }
+    }
+    reloadLedger();
+  }, [ledgerSortState]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSort = useCallback((sort: SortState) => {
-    setSortState(sort);
-  }, []);
+    if (activeTransactionTab === 'expenditures') {
+      setExpenditureSortState(sort);
+    } else if (activeTransactionTab === 'ledger') {
+      setLedgerSortState(sort);
+    } else {
+      setContributionSortState(sort);
+    }
+  }, [activeTransactionTab]);
 
   const handleExportCSV = useCallback(() => {
-    exportToCSV(contributions, CONTRIBUTION_COLUMNS, `tec-contributions-${filerId}-${new Date().toISOString().split('T')[0]}.csv`);
-  }, [contributions, filerId]);
+    const date = new Date().toISOString().split('T')[0];
+    if (activeTransactionTab === 'expenditures') {
+      exportToCSV(expenditures, EXPENDITURE_COLUMNS, `tec-expenditures-${filerId}-${date}.csv`);
+    } else if (activeTransactionTab === 'ledger') {
+      exportToCSV(ledger, LEDGER_COLUMNS, `tec-ledger-${filerId}-${date}.csv`);
+    } else {
+      exportToCSV(contributions, CONTRIBUTION_COLUMNS, `tec-contributions-${filerId}-${date}.csv`);
+    }
+  }, [activeTransactionTab, contributions, expenditures, ledger, filerId]);
 
   // Format date range for display
   const getDateRangeLabel = () => {
@@ -269,6 +306,50 @@ export default function CandidateProfile({ filerId }: CandidateProfileProps) {
     }
     return 'Since 2020';
   };
+
+  const activeColumns: Column<any>[] = (
+    activeTransactionTab === 'expenditures'
+      ? EXPENDITURE_COLUMNS
+      : activeTransactionTab === 'ledger'
+        ? LEDGER_COLUMNS
+        : CONTRIBUTION_COLUMNS
+  ) as Column<any>[];
+  const activeRows =
+    activeTransactionTab === 'expenditures'
+      ? expenditures
+      : activeTransactionTab === 'ledger'
+        ? ledger
+        : contributions;
+  const activeLoading =
+    activeTransactionTab === 'expenditures'
+      ? expendLoading
+      : activeTransactionTab === 'ledger'
+        ? ledgerLoading
+        : contribLoading;
+  const activeSortState =
+    activeTransactionTab === 'expenditures'
+      ? expenditureSortState
+      : activeTransactionTab === 'ledger'
+        ? ledgerSortState
+        : contributionSortState;
+  const activeTotal =
+    activeTransactionTab === 'expenditures'
+      ? expendituresTotal
+      : activeTransactionTab === 'ledger'
+        ? ledgerTotal
+        : contributionsTotal;
+  const activeEmptyMessage =
+    activeTransactionTab === 'expenditures'
+      ? 'No expenditures found for this candidate.'
+      : activeTransactionTab === 'ledger'
+        ? 'No transaction activity found for this candidate.'
+        : 'No contributions found for this candidate.';
+
+  const transactionTabs: { key: TransactionTab; label: string }[] = [
+    { key: 'contributions', label: 'Contributions' },
+    { key: 'expenditures', label: 'Expenditures' },
+    { key: 'ledger', label: 'Ledger' },
+  ];
 
   // Format report period
   const formatReportPeriod = (dateStr: string) => {
@@ -479,7 +560,7 @@ export default function CandidateProfile({ filerId }: CandidateProfileProps) {
               <h3 className="text-sm font-semibold text-slate-700">Itemized Records</h3>
               <span className="text-xs text-slate-500">({getDateRangeLabel()})</span>
             </div>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
               <div>
                 <p className="text-sm text-slate-500 mb-1">Total Contributions</p>
                 <p className="text-xl font-bold text-green-700">{formatCurrency(totalContributions)}</p>
@@ -492,6 +573,10 @@ export default function CandidateProfile({ filerId }: CandidateProfileProps) {
                 <p className="text-sm text-slate-500 mb-1"># of Contributions</p>
                 <p className="text-xl font-bold text-slate-900">{contributionCount.toLocaleString()}</p>
               </div>
+              <div>
+                <p className="text-sm text-slate-500 mb-1"># of Expenditures</p>
+                <p className="text-xl font-bold text-slate-900">{expenditureCount.toLocaleString()}</p>
+              </div>
             </div>
           </div>
         </div>
@@ -502,28 +587,44 @@ export default function CandidateProfile({ filerId }: CandidateProfileProps) {
           <ReportTimeline data={reportTimeline} title="Financial History (from reports)" />
         </div>
 
-        {/* Contributions Table */}
+        {/* Transaction Tables */}
         <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-          <div className="p-6 border-b border-slate-200">
+          <div className="p-6 border-b border-slate-200 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <h2 className="text-lg font-semibold text-slate-900">
-              Contributions
+              Itemized Transactions
               {datePreset !== 'all' && (
                 <span className="text-sm font-normal text-slate-500 ml-2">
                   ({datePreset === 'custom' ? 'Custom range' : datePreset})
                 </span>
               )}
             </h2>
+            <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-1">
+              {transactionTabs.map((tab) => (
+                <button
+                  key={tab.key}
+                  type="button"
+                  onClick={() => setActiveTransactionTab(tab.key)}
+                  className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                    activeTransactionTab === tab.key
+                      ? 'bg-white text-texas-blue shadow-sm'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
           </div>
           <DataTable
-            columns={CONTRIBUTION_COLUMNS}
-            data={contributions}
-            loading={contribLoading}
-            sortState={sortState}
+            columns={activeColumns}
+            data={activeRows as any[]}
+            loading={activeLoading}
+            sortState={activeSortState}
             onSort={handleSort}
             onExportCSV={handleExportCSV}
-            rowKey={(row) => row.contribution_id || row.id || String(Math.random())}
-            totalCount={contributionsTotal}
-            emptyMessage="No contributions found for this candidate."
+            rowKey={(row: any) => row.transaction_type ? `${row.transaction_type}-${row.id}` : row.contribution_id || row.expenditure_id || row.id || String(Math.random())}
+            totalCount={activeTotal}
+            emptyMessage={activeEmptyMessage}
           />
         </div>
       </div>

@@ -8,6 +8,7 @@ import {
   getCacheInfo,
   clearCache as clearParquetCache,
 } from './parquet-cache';
+import { buildPartyTagsValuesSql, getAllPartyTags } from './party-tags';
 
 // R2 bucket URL (custom domain with CDN caching)
 const R2_BASE = 'https://tec-data.joshuaru.sh';
@@ -136,6 +137,22 @@ export interface Expenditure {
   description?: string;
 }
 
+export interface LedgerTransaction {
+  id: string;
+  transaction_type: 'contribution' | 'expenditure';
+  direction: 'in' | 'out';
+  filer_id: string;
+  filer_name?: string;
+  name: string;
+  counterparty_city?: string;
+  counterparty_state?: string;
+  amount: number;
+  date: number;
+  received_date: number;
+  category?: string;
+  description?: string;
+}
+
 export interface Report {
   report_id: string;
   filer_id: string;
@@ -254,12 +271,38 @@ async function initDuckDB(): Promise<void> {
         await db.registerFileBuffer(name, new Uint8Array(data));
       }
 
+      const partyTagsValues = await getAllPartyTags()
+        .then(buildPartyTagsValuesSql)
+        .catch((error) => {
+          console.warn('Party tags unavailable during DuckDB initialization:', error);
+          return null;
+        });
+
+      const partyTagsCte = partyTagsValues
+        ? `party_tags(filer_id, party) AS (
+          VALUES ${partyTagsValues}
+        )`
+        : `party_tags(filer_id, party) AS (
+          SELECT NULL::VARCHAR AS filer_id, NULL::VARCHAR AS party WHERE false
+        )`;
+
       // Create views with compatibility aliases
       await connection.query(`
         CREATE VIEW IF NOT EXISTS filers AS
-        SELECT *,
+        WITH ${partyTagsCte}
+        SELECT
+          f.* EXCLUDE (party),
+          COALESCE(
+            CASE
+              WHEN f.party IN ('REPUBLICAN', 'DEMOCRAT', 'LIBERTARIAN', 'GREEN', 'INDEPENDENT')
+                THEN f.party
+              ELSE NULL
+            END,
+            pt.party
+          ) AS party,
           COALESCE(district_held, district_sought) as office_district
-        FROM read_parquet('filers.parquet');
+        FROM read_parquet('filers.parquet') f
+        LEFT JOIN party_tags pt ON f.id = pt.filer_id;
       `);
 
       await connection.query(`
@@ -315,6 +358,10 @@ export interface SearchFilters {
   amountMin?: number;
   amountMax?: number;
   contributorType?: string;
+  city?: string;
+  state?: string;
+  expenditureCategory?: string;
+  filerName?: string;
   party?: string;
   officeType?: string;
   district?: string;
@@ -511,6 +558,15 @@ const EXPENDITURE_SORT_COLUMNS: Record<string, string> = {
   amount: 'amount',
   date: 'date',
   category: 'category',
+};
+
+const LEDGER_SORT_COLUMNS: Record<string, string> = {
+  date: 'date',
+  direction: 'direction',
+  name: 'name',
+  filer_name: 'filer_name',
+  amount: 'amount',
+  description: 'description',
 };
 
 // Search expenditures
@@ -931,13 +987,18 @@ export async function getFilerStatsFiltered(
     WHERE ${whereClause}
   `);
 
-  const expendStats = await query<{ total: number; count: number }>(`
+  const expendStats = await query<{ total: number; count: number; earliest: number; latest: number }>(`
     SELECT
       COALESCE(SUM(amount), 0) as total,
-      COUNT(*) as count
+      COUNT(*) as count,
+      MIN(date) as earliest,
+      MAX(date) as latest
     FROM expenditures
     WHERE ${whereClause}
   `);
+
+  const earliestDates = [contribStats[0]?.earliest, expendStats[0]?.earliest].filter(Boolean);
+  const latestDates = [contribStats[0]?.latest, expendStats[0]?.latest].filter(Boolean);
 
   return {
     totalContributions: Number(contribStats[0]?.total || 0),
@@ -945,8 +1006,8 @@ export async function getFilerStatsFiltered(
     contributionCount: Number(contribStats[0]?.count || 0),
     expenditureCount: Number(expendStats[0]?.count || 0),
     dateRange: {
-      earliest: contribStats[0]?.earliest || null,
-      latest: contribStats[0]?.latest || null,
+      earliest: earliestDates.length > 0 ? Math.min(...earliestDates.map(Number)) : null,
+      latest: latestDates.length > 0 ? Math.max(...latestDates.map(Number)) : null,
     },
   };
 }
@@ -1079,42 +1140,74 @@ export async function searchExpendituresFull(
   await initDuckDB();
 
   const conditions: string[] = [];
+  const needsJoin = filters.party || filters.filerType || filters.officeType || filters.district;
+  const colPrefix = needsJoin ? 'e.' : '';
 
   if (filters.query) {
-    conditions.push(`payee_name ILIKE '%${escapeSql(filters.query)}%'`);
+    conditions.push(`${colPrefix}payee_name ILIKE '%${escapeSql(filters.query)}%'`);
   }
   if (filters.dateFrom) {
-    conditions.push(`date >= ${dateToInt(filters.dateFrom)}`);
+    conditions.push(`${colPrefix}date >= ${dateToInt(filters.dateFrom)}`);
   }
   if (filters.dateTo) {
-    conditions.push(`date <= ${dateToInt(filters.dateTo)}`);
+    conditions.push(`${colPrefix}date <= ${dateToInt(filters.dateTo)}`);
   }
   if (filters.amountMin !== undefined) {
-    conditions.push(`amount >= ${filters.amountMin}`);
+    conditions.push(`${colPrefix}amount >= ${filters.amountMin}`);
   }
   if (filters.amountMax !== undefined) {
-    conditions.push(`amount <= ${filters.amountMax}`);
+    conditions.push(`${colPrefix}amount <= ${filters.amountMax}`);
   }
   if (filters.filerId) {
-    conditions.push(`filer_id = '${escapeSql(filters.filerId)}'`);
+    conditions.push(`${colPrefix}filer_id = '${escapeSql(filters.filerId)}'`);
+  }
+  if (filters.filerName) {
+    conditions.push(`${colPrefix}filer_name ILIKE '%${escapeSql(filters.filerName)}%'`);
+  }
+  if (filters.city) {
+    conditions.push(`${colPrefix}payee_city ILIKE '%${escapeSql(filters.city)}%'`);
+  }
+  if (filters.state) {
+    if (filters.state === 'TX') {
+      conditions.push(`(${colPrefix}payee_state = 'TX' OR ${colPrefix}payee_state = 'TEXAS' OR ${colPrefix}payee_state ILIKE 'Texas')`);
+    } else {
+      conditions.push(`${colPrefix}payee_state = '${escapeSql(filters.state)}'`);
+    }
+  }
+  if (filters.expenditureCategory) {
+    conditions.push(`(${colPrefix}category = '${escapeSql(filters.expenditureCategory)}' OR ${colPrefix}category_code = '${escapeSql(filters.expenditureCategory)}')`);
+  }
+  if (filters.party) {
+    conditions.push(`f.party = '${escapeSql(filters.party)}'`);
+  }
+  if (filters.filerType) {
+    conditions.push(`f.type = '${escapeSql(filters.filerType)}'`);
+  }
+  if (filters.officeType) {
+    conditions.push(`(f.office_held = '${escapeSql(filters.officeType)}' OR f.office_sought = '${escapeSql(filters.officeType)}')`);
+  }
+  if (filters.district) {
+    conditions.push(`(f.district_held = '${escapeSql(filters.district)}' OR f.district_sought = '${escapeSql(filters.district)}')`);
   }
 
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+  const fromClause = needsJoin ? `expenditures e JOIN filers f ON e.filer_id = f.id` : 'expenditures';
+  const selectCols = needsJoin ? 'e.*' : '*';
 
   let orderBy = 'ORDER BY date DESC';
   if (sort && EXPENDITURE_SORT_COLUMNS[sort.column]) {
     const col = EXPENDITURE_SORT_COLUMNS[sort.column];
     const dir = sort.direction === 'asc' ? 'ASC' : 'DESC';
-    orderBy = `ORDER BY ${col} ${dir}`;
+    orderBy = `ORDER BY ${colPrefix}${col} ${dir}`;
   }
 
   const countResult = await query<{ count: number }>(`
-    SELECT COUNT(*) as count FROM expenditures ${whereClause}
+    SELECT COUNT(*) as count FROM ${fromClause} ${whereClause}
   `);
   const totalCount = Number(countResult[0]?.count || 0);
 
   const data = await query<Expenditure>(`
-    SELECT * FROM expenditures
+    SELECT ${selectCols} FROM ${fromClause}
     ${whereClause}
     ${orderBy}
     LIMIT ${cap}
@@ -1153,6 +1246,124 @@ export async function getContributionsForFilerFull(
   const data = await query<Contribution>(`
     SELECT * FROM contributions
     ${whereClause}
+    ${orderBy}
+    LIMIT ${cap}
+  `);
+
+  return { data, totalCount, capped: totalCount > cap };
+}
+
+export async function getExpendituresForFilerFull(
+  filerId: string,
+  sort?: SortParams,
+  dateFrom?: string,
+  dateTo?: string,
+  cap: number = DEFAULT_RESULT_CAP
+): Promise<FullSearchResult<Expenditure>> {
+  await initDuckDB();
+
+  const conditions = [`filer_id = '${escapeSql(filerId)}'`];
+  if (dateFrom) conditions.push(`date >= ${dateToInt(dateFrom)}`);
+  if (dateTo) conditions.push(`date <= ${dateToInt(dateTo)}`);
+  const whereClause = `WHERE ${conditions.join(' AND ')}`;
+
+  let orderBy = 'ORDER BY date DESC';
+  if (sort && EXPENDITURE_SORT_COLUMNS[sort.column]) {
+    const col = EXPENDITURE_SORT_COLUMNS[sort.column];
+    const dir = sort.direction === 'asc' ? 'ASC' : 'DESC';
+    orderBy = `ORDER BY ${col} ${dir}`;
+  }
+
+  const countResult = await query<{ count: number }>(`
+    SELECT COUNT(*) as count FROM expenditures ${whereClause}
+  `);
+  const totalCount = Number(countResult[0]?.count || 0);
+
+  const data = await query<Expenditure>(`
+    SELECT * FROM expenditures
+    ${whereClause}
+    ${orderBy}
+    LIMIT ${cap}
+  `);
+
+  return { data, totalCount, capped: totalCount > cap };
+}
+
+export async function getLedgerForFilerFull(
+  filerId: string,
+  sort?: SortParams,
+  dateFrom?: string,
+  dateTo?: string,
+  cap: number = DEFAULT_RESULT_CAP
+): Promise<FullSearchResult<LedgerTransaction>> {
+  await initDuckDB();
+
+  const contributionConditions = [`filer_id = '${escapeSql(filerId)}'`];
+  const expenditureConditions = [`filer_id = '${escapeSql(filerId)}'`];
+  if (dateFrom) {
+    const fromInt = dateToInt(dateFrom);
+    contributionConditions.push(`date >= ${fromInt}`);
+    expenditureConditions.push(`date >= ${fromInt}`);
+  }
+  if (dateTo) {
+    const toInt = dateToInt(dateTo);
+    contributionConditions.push(`date <= ${toInt}`);
+    expenditureConditions.push(`date <= ${toInt}`);
+  }
+
+  const contributionWhere = contributionConditions.join(' AND ');
+  const expenditureWhere = expenditureConditions.join(' AND ');
+
+  const ledgerSql = `
+    SELECT
+      CAST(contribution_id AS VARCHAR) as id,
+      'contribution' as transaction_type,
+      'in' as direction,
+      filer_id,
+      filer_name,
+      COALESCE(contributor_name, 'Unknown') as name,
+      contributor_city as counterparty_city,
+      contributor_state as counterparty_state,
+      amount,
+      date,
+      received_date,
+      NULL as category,
+      description
+    FROM contributions
+    WHERE ${contributionWhere}
+    UNION ALL
+    SELECT
+      CAST(expenditure_id AS VARCHAR) as id,
+      'expenditure' as transaction_type,
+      'out' as direction,
+      filer_id,
+      filer_name,
+      COALESCE(payee_name, 'Unknown') as name,
+      payee_city as counterparty_city,
+      payee_state as counterparty_state,
+      amount,
+      date,
+      received_date,
+      COALESCE(category, category_code) as category,
+      description
+    FROM expenditures
+    WHERE ${expenditureWhere}
+  `;
+
+  let orderBy = 'ORDER BY date DESC';
+  if (sort && LEDGER_SORT_COLUMNS[sort.column]) {
+    const col = LEDGER_SORT_COLUMNS[sort.column];
+    const dir = sort.direction === 'asc' ? 'ASC' : 'DESC';
+    orderBy = `ORDER BY ${col} ${dir}`;
+  }
+
+  const countResult = await query<{ count: number }>(`
+    SELECT COUNT(*) as count FROM (${ledgerSql}) ledger
+  `);
+  const totalCount = Number(countResult[0]?.count || 0);
+
+  const data = await query<LedgerTransaction>(`
+    SELECT * FROM (${ledgerSql}) ledger
     ${orderBy}
     LIMIT ${cap}
   `);

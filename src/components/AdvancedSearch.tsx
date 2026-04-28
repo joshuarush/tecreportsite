@@ -671,15 +671,28 @@ export default function AdvancedSearch() {
               <SectionHeader title="Transaction Type" section="transaction" icon="📊" />
               {expandedSections.transaction && (
                 <div className="p-4 space-y-3 border border-slate-200 rounded-lg mt-2">
-                  <div className="flex gap-4">
-                    <label className="flex items-center gap-2">
-                      <input type="radio" checked={filters.transactionType === 'contributions'} onChange={() => updateFilter('transactionType', 'contributions')} className="w-4 h-4 text-texas-blue" />
-                      <span className="text-sm">Contributions</span>
-                    </label>
-                    <label className="flex items-center gap-2">
-                      <input type="radio" checked={filters.transactionType === 'expenditures'} onChange={() => updateFilter('transactionType', 'expenditures')} className="w-4 h-4 text-texas-blue" />
-                      <span className="text-sm">Expenditures</span>
-                    </label>
+                  <div className="inline-flex w-full rounded-lg border border-slate-200 bg-slate-50 p-1">
+                    {(['contributions', 'expenditures'] as TransactionType[]).map((type) => (
+                      <button
+                        key={type}
+                        type="button"
+                        onClick={() => {
+                          updateFilter('transactionType', type);
+                          setSortState(null);
+                          setResults([]);
+                          setAggregatedResults([]);
+                          setTotalCount(0);
+                          setHasSearched(false);
+                        }}
+                        className={`flex-1 px-3 py-2 text-sm font-medium rounded-md transition-colors ${
+                          filters.transactionType === type
+                            ? 'bg-white text-texas-blue shadow-sm'
+                            : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        {type === 'contributions' ? 'Contributions' : 'Expenditures'}
+                      </button>
+                    ))}
                   </div>
                 </div>
               )}
