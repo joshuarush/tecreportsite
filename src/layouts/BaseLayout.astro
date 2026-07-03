@@ -76,12 +76,41 @@ const { title, description = "Search Texas campaign finance records from the Tex
           <p class="text-sm">
             Data from the <a href="https://www.ethics.state.tx.us/" target="_blank" rel="noopener noreferrer" class="text-blue-400 hover:text-blue-300">Texas Ethics Commission</a>
           </p>
-          <p class="text-sm">
+          <p class="text-sm" id="data-freshness">
             Records from 2020 to present
           </p>
         </div>
       </div>
     </footer>
+
+    <script>
+      // Freshness line in the footer, driven by the manifest the refresh
+      // pipeline publishes next to the parquet files. Kept dependency-free
+      // so it doesn't pull the DuckDB bundle into every page.
+      (async () => {
+        const el = document.getElementById('data-freshness');
+        if (!el) return;
+        try {
+          const res = await fetch('https://tec-data.joshuaru.sh/manifest.json', { cache: 'no-store' });
+          if (!res.ok) return;
+          const manifest = await res.json();
+          const s = String(manifest.data_through ?? '');
+          if (s.length !== 8) return;
+          const through = new Date(+s.slice(0, 4), +s.slice(4, 6) - 1, +s.slice(6, 8));
+          const throughText = through.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+          el.textContent = `Records from 2020 through ${throughText}`;
+          const builtAt = Date.parse(manifest.built_at);
+          if (!Number.isNaN(builtAt) && Date.now() - builtAt > 4 * 86400000) {
+            const warn = document.createElement('span');
+            warn.className = 'text-amber-400';
+            warn.textContent = ' · refresh overdue';
+            el.appendChild(warn);
+          }
+        } catch {
+          // Leave the static fallback text in place
+        }
+      })();
+    </script>
   </body>
 </html>
 

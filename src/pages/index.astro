@@ -95,22 +95,22 @@ import BaseLayout from '../layouts/BaseLayout.astro';
 
       <!-- Center: Quick Actions -->
       <main class="content">
-        <!-- Stats Row -->
+        <!-- Stats Row (static values are fallbacks; hydrated from manifest.json) -->
         <div class="stats-row">
           <div class="stat">
-            <span class="stat-value">15.6M</span>
+            <span class="stat-value" data-stat="contributions">15.6M</span>
             <span class="stat-label">Contributions</span>
           </div>
           <div class="stat">
-            <span class="stat-value">4.3M</span>
+            <span class="stat-value" data-stat="expenditures">4.3M</span>
             <span class="stat-label">Expenditures</span>
           </div>
           <div class="stat">
-            <span class="stat-value">20.7K</span>
+            <span class="stat-value" data-stat="filers">20.7K</span>
             <span class="stat-label">Filers</span>
           </div>
           <div class="stat">
-            <span class="stat-value">385K</span>
+            <span class="stat-value" data-stat="reports">385K</span>
             <span class="stat-label">Reports</span>
           </div>
         </div>
@@ -231,8 +231,12 @@ import BaseLayout from '../layouts/BaseLayout.astro';
               <span class="coverage-value">2020 – Present</span>
             </div>
             <div class="coverage-item">
-              <span class="coverage-label">Last Updated</span>
-              <span class="coverage-value">Apr 2026</span>
+              <span class="coverage-label">Data Through</span>
+              <span class="coverage-value" id="coverage-through">Apr 2026</span>
+            </div>
+            <div class="coverage-item">
+              <span class="coverage-label">Last Refresh</span>
+              <span class="coverage-value" id="coverage-updated">—</span>
             </div>
             <div class="coverage-item">
               <span class="coverage-label">Source</span>
@@ -293,6 +297,41 @@ import BaseLayout from '../layouts/BaseLayout.astro';
       }
     });
   }
+
+  // Hydrate stats + data coverage from the refresh pipeline's manifest.
+  // Standalone fetch (not the duckdb lib) so the homepage stays light.
+  (async () => {
+    try {
+      const res = await fetch('https://tec-data.joshuaru.sh/manifest.json', { cache: 'no-store' });
+      if (!res.ok) return;
+      const manifest = await res.json();
+
+      const compact = (n: number) =>
+        new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 }).format(n);
+      for (const [key, value] of Object.entries(manifest.stats ?? {})) {
+        const el = document.querySelector(`[data-stat="${key}"]`);
+        if (el && typeof value === 'number') el.textContent = compact(value);
+      }
+
+      const s = String(manifest.data_through ?? '');
+      if (s.length === 8) {
+        const through = new Date(+s.slice(0, 4), +s.slice(4, 6) - 1, +s.slice(6, 8));
+        const throughEl = document.getElementById('coverage-through');
+        if (throughEl) {
+          throughEl.textContent = through.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+        }
+      }
+      const builtAt = Date.parse(manifest.built_at);
+      const updatedEl = document.getElementById('coverage-updated');
+      if (updatedEl && !Number.isNaN(builtAt)) {
+        const days = Math.floor((Date.now() - builtAt) / 86400000);
+        updatedEl.textContent = days === 0 ? 'Today' : days === 1 ? 'Yesterday' : `${days} days ago`;
+        if (days > 4) (updatedEl as HTMLElement).style.color = '#b45309';
+      }
+    } catch {
+      // Static fallback values remain
+    }
+  })();
 </script>
 
 <style>

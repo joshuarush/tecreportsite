@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { onInitProgressChange, waitForInit, clearCache, getCacheInfo, type InitProgress } from '../lib/duckdb';
+import { onInitProgressChange, waitForInit, clearCache, getCacheInfo, getDataManifest, type InitProgress } from '../lib/duckdb';
 import { formatBytes } from '../lib/parquet-cache';
 
 interface DatabaseLoaderProps {
@@ -9,10 +9,23 @@ interface DatabaseLoaderProps {
 export default function DatabaseLoader({ children }: DatabaseLoaderProps) {
   const [progress, setProgress] = useState<InitProgress>({ status: 'idle', error: null });
   const [cacheSize, setCacheSize] = useState<number>(0);
+  const [downloadSize, setDownloadSize] = useState<number>(0);
+  const [dataThrough, setDataThrough] = useState<string | null>(null);
 
   useEffect(() => {
     // Check cache size
     getCacheInfo().then(info => setCacheSize(info.totalSize));
+
+    // Manifest gives us the real download size and data recency
+    getDataManifest().then(manifest => {
+      if (!manifest) return;
+      setDownloadSize(manifest.files.reduce((sum, f) => sum + f.size, 0));
+      const s = String(manifest.data_through ?? '');
+      if (s.length === 8) {
+        const d = new Date(+s.slice(0, 4), +s.slice(4, 6) - 1, +s.slice(6, 8));
+        setDataThrough(d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }));
+      }
+    });
 
     // Start initialization
     waitForInit().catch(() => {
@@ -24,8 +37,10 @@ export default function DatabaseLoader({ children }: DatabaseLoaderProps) {
     return unsubscribe;
   }, []);
 
+  const sizeText = downloadSize > 0 ? `~${formatBytes(downloadSize)}` : '~290MB';
+
   const handleClearCache = async () => {
-    if (confirm('Clear cached data? You will need to re-download ~290MB on next visit.')) {
+    if (confirm(`Clear cached data? You will need to re-download ${sizeText} on next visit.`)) {
       await clearCache();
       window.location.reload();
     }
@@ -97,7 +112,7 @@ export default function DatabaseLoader({ children }: DatabaseLoaderProps) {
     if (progress.status === 'checking-cache') {
       return 'Checking if data is already cached locally...';
     }
-    return 'First load downloads ~290MB, then it\'s cached locally';
+    return `First load downloads ${sizeText}, then it's cached locally`;
   };
 
   return (
@@ -176,6 +191,13 @@ export default function DatabaseLoader({ children }: DatabaseLoaderProps) {
       {cacheSize > 0 && (
         <p className="text-xs text-slate-400 mt-4">
           Local cache: {formatBytes(cacheSize)}
+        </p>
+      )}
+
+      {/* Data recency from manifest */}
+      {dataThrough && (
+        <p className="text-xs text-slate-400 mt-1">
+          Data through {dataThrough}
         </p>
       )}
     </div>

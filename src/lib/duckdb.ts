@@ -13,13 +13,74 @@ import { buildPartyTagsValuesSql, getAllPartyTags } from './party-tags';
 // R2 bucket URL (custom domain with CDN caching)
 const R2_BASE = 'https://tec-data.joshuaru.sh';
 
-// Parquet files to load
-const PARQUET_FILES = [
+/**
+ * Data manifest published to R2 by scripts/refresh/tec_refresh.py alongside
+ * the parquet files. Drives per-file cache invalidation (sha256 versions)
+ * and data-freshness display. The hardcoded list below is only a fallback
+ * for when the manifest fetch fails (e.g. offline with a warm cache).
+ */
+export interface DataManifest {
+  schema: number;
+  version: string;
+  built_at: string;
+  data_through: number; // YYYYMMDD
+  files: { name: string; size: number; sha256: string; rows: number }[];
+  stats: {
+    filers: number;
+    reports: number;
+    contributions: number;
+    expenditures: number;
+  };
+}
+
+interface ParquetFileEntry {
+  name: string;
+  size: number;
+  version?: string;
+}
+
+const FALLBACK_PARQUET_FILES: ParquetFileEntry[] = [
   { name: 'filers.parquet', size: 382864 },
   { name: 'reports.parquet', size: 7484732 },
   { name: 'expenditures.parquet', size: 77881659 },
   { name: 'contributions_2020.parquet', size: 199865528 },
-] as const;
+];
+
+let manifestPromise: Promise<DataManifest | null> | null = null;
+
+export function getDataManifest(): Promise<DataManifest | null> {
+  if (!manifestPromise) {
+    manifestPromise = (async () => {
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 8000);
+        const res = await fetch(`${R2_BASE}/manifest.json`, {
+          cache: 'no-store',
+          signal: controller.signal,
+        });
+        clearTimeout(timer);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const manifest = (await res.json()) as DataManifest;
+        if (!Array.isArray(manifest.files) || manifest.files.length === 0) {
+          throw new Error('manifest has no files');
+        }
+        return manifest;
+      } catch (error) {
+        console.warn('Data manifest unavailable, using built-in file list:', error);
+        return null;
+      }
+    })();
+  }
+  return manifestPromise;
+}
+
+/** Format a YYYYMMDD integer like 20260702 as "Jul 2, 2026" */
+export function formatDataDate(yyyymmdd: number): string {
+  const s = String(yyyymmdd);
+  if (s.length !== 8) return s;
+  const date = new Date(Number(s.slice(0, 4)), Number(s.slice(4, 6)) - 1, Number(s.slice(6, 8)));
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
 
 // Singleton instances
 let db: duckdb.AsyncDuckDB | null = null;
@@ -170,18 +231,18 @@ export interface Report {
 
 // Load a parquet file (from cache or download)
 async function loadParquetFile(
-  fileName: string,
+  file: ParquetFileEntry,
   fileIndex: number,
   totalFiles: number
 ): Promise<ArrayBuffer> {
-  const url = `${R2_BASE}/${fileName}`;
+  const url = `${R2_BASE}/${file.name}`;
 
-  // Check cache first
-  const cached = await getCachedFile(url);
+  // Check cache first; a version mismatch against the manifest is a miss
+  const cached = await getCachedFile(url, file.version);
   if (cached) {
-    console.log(`Loaded ${fileName} from cache (${formatBytes(cached.byteLength)})`);
+    console.log(`Loaded ${file.name} from cache (${formatBytes(cached.byteLength)})`);
     setProgress({
-      currentFile: fileName,
+      currentFile: file.name,
       fileProgress: 100,
       totalProgress: Math.round(((fileIndex + 1) / totalFiles) * 100),
       cached: true,
@@ -190,10 +251,10 @@ async function loadParquetFile(
   }
 
   // Download with progress
-  console.log(`Downloading ${fileName}...`);
+  console.log(`Downloading ${file.name}...`);
   setProgress({
     status: 'downloading',
-    currentFile: fileName,
+    currentFile: file.name,
     fileProgress: 0,
     cached: false,
   });
@@ -211,9 +272,9 @@ async function loadParquetFile(
     });
   });
 
-  // Cache for next time
-  await setCachedFile(url, data);
-  console.log(`Downloaded and cached ${fileName} (${formatBytes(data.byteLength)})`);
+  // Cache for next time, tagged with the manifest version
+  await setCachedFile(url, data, file.version);
+  console.log(`Downloaded and cached ${file.name} (${formatBytes(data.byteLength)})`);
 
   return data;
 }
@@ -256,11 +317,18 @@ async function initDuckDB(): Promise<void> {
       setProgress({ status: 'checking-cache' });
       console.log('Loading parquet files...');
 
+      // The manifest tells us the current file versions; without it we
+      // fall back to the built-in list and accept whatever is cached.
+      const manifest = await getDataManifest();
+      const parquetFiles: ParquetFileEntry[] = manifest
+        ? manifest.files.map(f => ({ name: f.name, size: f.size, version: f.sha256 }))
+        : FALLBACK_PARQUET_FILES;
+
       // Load all parquet files (from cache or download)
       const files: Record<string, ArrayBuffer> = {};
-      for (let i = 0; i < PARQUET_FILES.length; i++) {
-        const file = PARQUET_FILES[i];
-        files[file.name] = await loadParquetFile(file.name, i, PARQUET_FILES.length);
+      for (let i = 0; i < parquetFiles.length; i++) {
+        const file = parquetFiles[i];
+        files[file.name] = await loadParquetFile(file, i, parquetFiles.length);
       }
 
       setProgress({ status: 'loading-data', totalProgress: 100 });

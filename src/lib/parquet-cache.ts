@@ -12,6 +12,8 @@ interface CachedFile {
   data: ArrayBuffer;
   timestamp: number;
   size: number;
+  /** Content version (sha256 from manifest.json); absent on pre-manifest entries */
+  version?: string;
 }
 
 let dbPromise: Promise<IDBDatabase> | null = null;
@@ -38,7 +40,7 @@ function openDB(): Promise<IDBDatabase> {
   return dbPromise;
 }
 
-export async function getCachedFile(url: string): Promise<ArrayBuffer | null> {
+export async function getCachedFile(url: string, expectedVersion?: string): Promise<ArrayBuffer | null> {
   try {
     const db = await openDB();
     return new Promise((resolve, reject) => {
@@ -49,7 +51,18 @@ export async function getCachedFile(url: string): Promise<ArrayBuffer | null> {
       request.onerror = () => reject(request.error);
       request.onsuccess = () => {
         const result = request.result as CachedFile | undefined;
-        resolve(result?.data || null);
+        if (!result) {
+          resolve(null);
+          return;
+        }
+        // When the manifest tells us which version we need, a stale or
+        // pre-manifest cache entry is a miss so we re-download fresh data.
+        if (expectedVersion && result.version !== expectedVersion) {
+          console.log(`Cache stale for ${url} (have ${result.version || 'unversioned'}, want ${expectedVersion})`);
+          resolve(null);
+          return;
+        }
+        resolve(result.data || null);
       };
     });
   } catch (error) {
@@ -58,7 +71,7 @@ export async function getCachedFile(url: string): Promise<ArrayBuffer | null> {
   }
 }
 
-export async function setCachedFile(url: string, data: ArrayBuffer): Promise<void> {
+export async function setCachedFile(url: string, data: ArrayBuffer, version?: string): Promise<void> {
   try {
     const db = await openDB();
     return new Promise((resolve, reject) => {
@@ -69,6 +82,7 @@ export async function setCachedFile(url: string, data: ArrayBuffer): Promise<voi
         data,
         timestamp: Date.now(),
         size: data.byteLength,
+        version,
       };
       const request = store.put(entry);
 
