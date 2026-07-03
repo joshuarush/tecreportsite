@@ -4,7 +4,7 @@
  */
 
 const DB_NAME = 'tec-parquet-cache';
-const DB_VERSION = 1;
+const DB_VERSION = 3; // Bump to invalidate cached parquet files (2026-04-29 data update)
 const STORE_NAME = 'parquet-files';
 
 interface CachedFile {
@@ -27,9 +27,11 @@ function openDB(): Promise<IDBDatabase> {
 
     request.onupgradeneeded = (event) => {
       const db = (event.target as IDBOpenDBRequest).result;
-      if (!db.objectStoreNames.contains(STORE_NAME)) {
-        db.createObjectStore(STORE_NAME, { keyPath: 'url' });
+      // Delete old store on version bump to force re-download of updated data
+      if (db.objectStoreNames.contains(STORE_NAME)) {
+        db.deleteObjectStore(STORE_NAME);
       }
+      db.createObjectStore(STORE_NAME, { keyPath: 'url' });
     };
   });
 

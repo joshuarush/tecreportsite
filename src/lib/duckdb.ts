@@ -15,10 +15,10 @@ const R2_BASE = 'https://tec-data.joshuaru.sh';
 
 // Parquet files to load
 const PARQUET_FILES = [
-  { name: 'filers.parquet', size: 381539 },
-  { name: 'reports.parquet', size: 7639590 },
-  { name: 'expenditures.parquet', size: 86522293 },
-  { name: 'contributions_2020.parquet', size: 209764005 },
+  { name: 'filers.parquet', size: 382864 },
+  { name: 'reports.parquet', size: 7484732 },
+  { name: 'expenditures.parquet', size: 77881659 },
+  { name: 'contributions_2020.parquet', size: 199865528 },
 ] as const;
 
 // Singleton instances
