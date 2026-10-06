@@ -17,15 +17,9 @@ export const PARTY_OPTIONS = [
 export type PartyOption = typeof PARTY_OPTIONS[number];
 
 const PARTY_SET = new Set<string>(PARTY_OPTIONS);
-const DEFAULT_PARTY_TAGS_API_URL = 'https://tec-party-tags.joshuaru.sh';
 const STATIC_PARTY_TAGS_URL = '/party_tags.json';
 
 let partyTagsPromise: Promise<PartyTag[]> | null = null;
-
-function getPartyTagsApiBase(): string {
-  const configured = import.meta.env.PUBLIC_PARTY_TAGS_API_URL || DEFAULT_PARTY_TAGS_API_URL;
-  return configured.replace(/\/+$/, '');
-}
 
 function isPartyOption(party: string): party is PartyOption {
   return PARTY_SET.has(party);
@@ -84,11 +78,7 @@ async function fetchPartyTagsFrom(url: string): Promise<PartyTag[]> {
 
 export async function getAllPartyTags(): Promise<PartyTag[]> {
   if (!partyTagsPromise) {
-    partyTagsPromise = fetchPartyTagsFrom(`${getPartyTagsApiBase()}/party-tags`)
-      .catch(async (error) => {
-        console.warn('Falling back to static party tags:', error);
-        return fetchPartyTagsFrom(STATIC_PARTY_TAGS_URL);
-      });
+    partyTagsPromise = fetchPartyTagsFrom(STATIC_PARTY_TAGS_URL);
   }
 
   return partyTagsPromise;
@@ -97,51 +87,6 @@ export async function getAllPartyTags(): Promise<PartyTag[]> {
 export async function getPartyTag(filerId: string): Promise<PartyTag | null> {
   const tags = await getAllPartyTags();
   return tags.find((tag) => tag.filer_id === filerId) || null;
-}
-
-export async function submitPartyTag(
-  filerId: string,
-  party: PartyOption,
-  name?: string | null
-): Promise<{ success: boolean; error?: string }> {
-  try {
-    const response = await fetch(`${getPartyTagsApiBase()}/party-tags`, {
-      method: 'POST',
-      headers: {
-        Accept: 'application/json',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ filer_id: filerId, party, name }),
-    });
-
-    const payload = await response.json().catch(() => ({}));
-
-    if (!response.ok) {
-      const message = typeof payload.error === 'string'
-        ? payload.error
-        : `Party tag server returned ${response.status}`;
-      return { success: false, error: message };
-    }
-
-    const [tag] = normalizePartyTagPayload({ tags: [payload.tag ?? payload] });
-    if (tag) {
-      const existing = await getAllPartyTags().catch(() => []);
-      partyTagsPromise = Promise.resolve([
-        tag,
-        ...existing.filter((item) => item.filer_id !== tag.filer_id),
-      ]);
-    } else {
-      partyTagsPromise = null;
-    }
-
-    return { success: true };
-  } catch (error) {
-    console.error('Error submitting party tag:', error);
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : 'Party tag server is unavailable',
-    };
-  }
 }
 
 function escapeSqlLiteral(value: string): string {

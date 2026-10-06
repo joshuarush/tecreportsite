@@ -766,7 +766,7 @@
     {
       "filer_id": "00083896",
       "party": "DEMOCRAT",
-      "name": "Holgu\u00edn, Eric (Mr.)",
+      "name": "Holguín, Eric (Mr.)",
       "tagged_at": "2026-04-28T14:29:19Z",
       "source": "filers.parquet"
     },
@@ -3415,7 +3415,28 @@
       "name": "Zhou, Helen Q.",
       "tagged_at": "2026-04-28T14:29:19Z",
       "source": "filers.parquet"
+    },
+    {
+      "filer_id": "00054318",
+      "party": "DEMOCRAT",
+      "name": "Herrero, Abel (The Honorable)",
+      "tagged_at": "2026-04-28T14:50:31Z",
+      "source": "community"
+    },
+    {
+      "filer_id": "00089742",
+      "party": "DEMOCRAT",
+      "name": "Cole, Bobby A. (Mr.)",
+      "tagged_at": "2026-04-28T18:19:35Z",
+      "source": "community"
+    },
+    {
+      "filer_id": "00081605",
+      "party": "DEMOCRAT",
+      "name": "Johnson, Nathan M. (The Honorable)",
+      "tagged_at": "2026-04-28T18:19:49Z",
+      "source": "community"
     }
   ],
-  "lastUpdated": "2026-04-28T14:29:19Z"
+  "lastUpdated": "2026-04-28T18:19:49Z"
 }
