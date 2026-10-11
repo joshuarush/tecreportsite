@@ -6,9 +6,9 @@ export const TOUR_STORAGE_KEY = 'armadollar:tour:v1';
 export type TourSearchKind = 'donor' | 'committee' | 'payee';
 
 export const TOUR_SEARCH_ROUTES: Record<TourSearchKind, string> = {
-  donor: '/search/contributors',
-  committee: '/search/committees',
-  payee: '/search/payees',
+  donor: '/search/contributors/',
+  committee: '/search/committees/',
+  payee: '/search/payees/',
 };
 
 /**

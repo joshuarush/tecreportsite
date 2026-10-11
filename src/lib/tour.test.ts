@@ -14,8 +14,8 @@ describe('first-visit tour', () => {
   });
 
   test('builds deep links into each search', () => {
-    expect(tourSearchUrl('donor', ' Bob Perry ')).toBe('/search/contributors?q=Bob%20Perry');
-    expect(tourSearchUrl('committee', 'Abbott')).toBe('/search/committees?q=Abbott');
-    expect(tourSearchUrl('payee', '')).toBe('/search/payees');
+    expect(tourSearchUrl('donor', ' Bob Perry ')).toBe('/search/contributors/?q=Bob%20Perry');
+    expect(tourSearchUrl('committee', 'Abbott')).toBe('/search/committees/?q=Abbott');
+    expect(tourSearchUrl('payee', '')).toBe('/search/payees/');
   });
 });
