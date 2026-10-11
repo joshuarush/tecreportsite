@@ -417,13 +417,13 @@ export default function AdvancedSearch() {
           const escapedName = escapeSql(filters.name);
           if (filters.nameSearchType === 'exact') conditions.push(`${colPrefix}contributor_name ILIKE '${escapedName}'`);
           else if (filters.nameSearchType === 'starts_with') conditions.push(`${colPrefix}contributor_name ILIKE '${escapedName}%'`);
-          else conditions.push(`${colPrefix}contributor_name ILIKE '%${escapedName}%'`);
+          else conditions.push(`contains(lower(${colPrefix}contributor_name), lower('${escapedName}'))`);
         }
         if (filters.amountMin) conditions.push(`${colPrefix}amount >= ${parseFloat(filters.amountMin)}`);
         if (filters.amountMax) conditions.push(`${colPrefix}amount <= ${parseFloat(filters.amountMax)}`);
         if (filters.dateFrom) conditions.push(`${colPrefix}date >= ${dateToInt(filters.dateFrom)}`);
         if (filters.dateTo) conditions.push(`${colPrefix}date <= ${dateToInt(filters.dateTo)}`);
-        if (filters.city) conditions.push(`${colPrefix}contributor_city ILIKE '%${escapeSql(filters.city)}%'`);
+        if (filters.city) conditions.push(`contains(lower(${colPrefix}contributor_city), lower('${escapeSql(filters.city)}'))`);
         if (filters.state) {
           if (filters.state === 'TX') {
             conditions.push(`(${colPrefix}contributor_state = 'TX' OR ${colPrefix}contributor_state = 'TEXAS' OR ${colPrefix}contributor_state ILIKE 'Texas')`);
@@ -440,10 +440,10 @@ export default function AdvancedSearch() {
           const cities = getCitiesInRegion(filters.region);
           if (cities.length > 0) conditions.push(`UPPER(${colPrefix}contributor_city) IN (${cities.map(c => `'${escapeSql(c)}'`).join(', ')})`);
         }
-        if (filters.employer) conditions.push(`${colPrefix}contributor_employer ILIKE '%${escapeSql(filters.employer)}%'`);
-        if (filters.occupation) conditions.push(`${colPrefix}contributor_occupation ILIKE '%${escapeSql(filters.occupation)}%'`);
+        if (filters.employer) conditions.push(`contains(lower(${colPrefix}contributor_employer), lower('${escapeSql(filters.employer)}'))`);
+        if (filters.occupation) conditions.push(`contains(lower(${colPrefix}contributor_occupation), lower('${escapeSql(filters.occupation)}'))`);
         if (filters.contributorType) conditions.push(`${colPrefix}contributor_type = '${escapeSql(filters.contributorType)}'`);
-        if (filters.filerName) conditions.push(`${colPrefix}filer_name ILIKE '%${escapeSql(filters.filerName)}%'`);
+        if (filters.filerName) conditions.push(`contains(lower(${colPrefix}filer_name), lower('${escapeSql(filters.filerName)}'))`);
         if (filters.party) conditions.push(`f.party = '${escapeSql(filters.party)}'`);
         if (filters.filerType) conditions.push(`f.type = '${escapeSql(filters.filerType)}'`);
         if (filters.officeType) conditions.push(`(f.office_sought = '${escapeSql(filters.officeType)}' OR f.office_held = '${escapeSql(filters.officeType)}')`);
@@ -531,13 +531,13 @@ export default function AdvancedSearch() {
           const searchName = escapeSql(filters.payeeName || filters.name);
           if (filters.nameSearchType === 'exact') conditions.push(`${colPrefix}payee_name ILIKE '${searchName}'`);
           else if (filters.nameSearchType === 'starts_with') conditions.push(`${colPrefix}payee_name ILIKE '${searchName}%'`);
-          else conditions.push(`${colPrefix}payee_name ILIKE '%${searchName}%'`);
+          else conditions.push(`contains(lower(${colPrefix}payee_name), lower('${searchName}'))`);
         }
         if (filters.amountMin) conditions.push(`${colPrefix}amount >= ${parseFloat(filters.amountMin)}`);
         if (filters.amountMax) conditions.push(`${colPrefix}amount <= ${parseFloat(filters.amountMax)}`);
         if (filters.dateFrom) conditions.push(`${colPrefix}date >= ${dateToInt(filters.dateFrom)}`);
         if (filters.dateTo) conditions.push(`${colPrefix}date <= ${dateToInt(filters.dateTo)}`);
-        if (filters.city) conditions.push(`${colPrefix}payee_city ILIKE '%${escapeSql(filters.city)}%'`);
+        if (filters.city) conditions.push(`contains(lower(${colPrefix}payee_city), lower('${escapeSql(filters.city)}'))`);
         if (filters.state) {
           if (filters.state === 'TX') {
             conditions.push(`(${colPrefix}payee_state = 'TX' OR ${colPrefix}payee_state = 'TEXAS' OR ${colPrefix}payee_state ILIKE 'Texas')`);
@@ -555,7 +555,7 @@ export default function AdvancedSearch() {
           if (cities.length > 0) conditions.push(`UPPER(${colPrefix}payee_city) IN (${cities.map(c => `'${escapeSql(c)}'`).join(', ')})`);
         }
         if (filters.expenditureCategory) conditions.push(`${colPrefix}category = '${escapeSql(filters.expenditureCategory)}'`);
-        if (filters.filerName) conditions.push(`${colPrefix}filer_name ILIKE '%${escapeSql(filters.filerName)}%'`);
+        if (filters.filerName) conditions.push(`contains(lower(${colPrefix}filer_name), lower('${escapeSql(filters.filerName)}'))`);
         if (filters.party) conditions.push(`f.party = '${escapeSql(filters.party)}'`);
         if (filters.filerType) conditions.push(`f.type = '${escapeSql(filters.filerType)}'`);
         if (filters.officeType) conditions.push(`(f.office_sought = '${escapeSql(filters.officeType)}' OR f.office_held = '${escapeSql(filters.officeType)}')`);

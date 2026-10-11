@@ -292,6 +292,9 @@ export default function CandidateProfile({ filerId }: CandidateProfileProps) {
       : activeTransactionTab === 'ledger'
         ? LEDGER_COLUMNS
         : CONTRIBUTION_COLUMNS
+  ).map(col =>
+    // Every row on a profile names this filer, so drop that column on phones
+    col.key === 'filer_name' ? { ...col, hidden: 'mobile' as const } : col
   ) as Column<any>[];
   const activeRows =
     activeTransactionTab === 'expenditures'

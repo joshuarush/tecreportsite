@@ -309,9 +309,9 @@ export default function QueryBuilder() {
       case 'not_equals':
         return `${field} != '${escapedValue}'`;
       case 'contains':
-        return `${field} ILIKE '%${escapedValue}%'`;
+        return `contains(lower(${field}), lower('${escapedValue}'))`;
       case 'not_contains':
-        return `${field} NOT ILIKE '%${escapedValue}%'`;
+        return `NOT contains(lower(${field}), lower('${escapedValue}'))`;
       case 'starts_with':
         return `${field} ILIKE '${escapedValue}%'`;
       case 'ends_with':

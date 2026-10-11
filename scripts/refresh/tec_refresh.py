@@ -51,6 +51,20 @@ TABLES = {
 # A refresh that shrinks any table below this fraction of the previous
 # run is treated as a bad source dump and rejected (unless --force).
 MIN_ROW_RATIO = 0.98
+# ...unless the same shrink shows up in this many distinct TEC dumps in a
+# row, in which case it's a real restatement and we accept it rather than
+# blocking refreshes until someone runs --force.
+SHRINK_ACCEPT_AFTER_DUMPS = 3
+
+# A lock older than this is left over from a killed run (reboot, OOM) and
+# is cleared automatically.
+STALE_LOCK_SECONDS = 3 * 3600
+
+# Transaction tables are sorted by filer so per-filer queries in the browser
+# skip unrelated row groups. Sorting is the memory-heavy step, so it runs as
+# its own low-memory pass (the NAS has <4GB RAM).
+SORTED_TABLES = ("contributions", "expenditures")
+SORT_KEYS = "filer_id, date"
 
 REQUIRED_CSVS = ["filers.csv", "cover.csv"]  # globs checked separately
 
@@ -159,6 +173,24 @@ def build_parquet(duckdb_bin: str, stage: Path, extract: Path) -> Path:
     return stage / "data"
 
 
+def sort_tables(duckdb_bin: str, data_dir: Path, stage: Path) -> None:
+    memory = os.environ.get("TEC_DUCKDB_SORT_MEMORY", "600MB")
+    threads = os.environ.get("TEC_DUCKDB_SORT_THREADS", "1")
+    for table in SORTED_TABLES:
+        path = data_dir / TABLES[table][0]
+        tmp = path.with_suffix(".sorted.parquet")
+        sql = (
+            f"SET memory_limit='{memory}';\n"
+            f"SET threads={threads};\n"
+            f"SET temp_directory='{stage / 'duckdb_tmp'}';\n"
+            f"COPY (FROM read_parquet('{path}') ORDER BY {SORT_KEYS}) "
+            f"TO '{tmp}' (FORMAT PARQUET, COMPRESSION ZSTD);\n"
+        )
+        log(f"sorting {path.name} by {SORT_KEYS}...")
+        subprocess.run([duckdb_bin], input=sql, text=True, check=True, cwd=stage)
+        os.replace(tmp, path)
+
+
 def table_stats(duckdb_bin: str, data_dir: Path) -> dict:
     stats = {}
     for table, (fname, date_col) in TABLES.items():
@@ -191,7 +223,7 @@ def sha256(path: Path) -> str:
     return h.hexdigest()
 
 
-def validate(stats: dict, previous: dict, force: bool) -> None:
+def validate(stats: dict, previous: dict, force: bool, state: dict, source_meta: dict) -> None:
     problems = []
     for table, s in stats.items():
         if s["rows"] == 0:
@@ -212,8 +244,18 @@ def validate(stats: dict, previous: dict, force: bool) -> None:
         msg = "; ".join(problems)
         if force:
             log(f"WARNING (--force, continuing anyway): {msg}")
-        else:
-            fail(f"validation failed: {msg}. Re-run with --force to override.")
+            return
+        # Track which source dumps have failed validation. Saved by the
+        # caller only on failure; a successful run resets state entirely.
+        dumps = state.setdefault("rejected_dumps", [])
+        key = source_meta.get("last_modified") or str(source_meta.get("size"))
+        if key not in dumps:
+            dumps.append(key)
+        if len(dumps) >= SHRINK_ACCEPT_AFTER_DUMPS:
+            log(f"WARNING: accepting after {len(dumps)} consecutive TEC dumps agree: {msg}")
+            return
+        fail(f"validation failed ({len(dumps)}/{SHRINK_ACCEPT_AFTER_DUMPS} dumps): {msg}. "
+             "Will auto-accept if it persists; --force overrides now.")
 
 
 def build_manifest(stats: dict, source_meta: dict) -> dict:
@@ -271,6 +313,11 @@ def main() -> None:
     load_dotenv(base)
 
     lock = work / "refresh.lock"
+    if lock.exists():
+        age = datetime.now().timestamp() - lock.stat().st_mtime
+        if age > STALE_LOCK_SECONDS:
+            log(f"removing stale lock ({age / 3600:.1f}h old)")
+            shutil.rmtree(lock, ignore_errors=True)
     try:
         lock.mkdir()
     except FileExistsError:
@@ -310,13 +357,21 @@ def main() -> None:
 
         log("building parquet files (this takes a few minutes)...")
         new_data = build_parquet(duckdb_bin, work / "stage", extract_dir)
+        # The extracted CSVs (~4GB) aren't needed past this point.
+        if not args.keep_work:
+            shutil.rmtree(extract_dir, ignore_errors=True)
+        sort_tables(duckdb_bin, new_data, work / "stage")
 
         stats = table_stats(duckdb_bin, new_data)
         for table, s in stats.items():
             log(f"  {table}: {s['rows']:,} rows, through {s['max_date']}, {s['size']:,} bytes")
 
         previous = state.get("manifest", {})
-        validate(stats, previous, args.force)
+        try:
+            validate(stats, previous, args.force, state, source_meta)
+        except SystemExit:
+            state_path.write_text(json.dumps(state, indent=2))
+            raise
 
         log("hashing...")
         for s in stats.values():

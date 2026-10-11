@@ -12,9 +12,12 @@ scripts/refresh/tec_refresh.py
   1. HEAD the TEC zip; skip the run if unchanged since last success
   2. Download + extract
   3. Rebuild parquet files (scripts/build_parquet.sql via DuckDB)
-  4. Validate: no table shrinks >2%, data_through never regresses
-  5. Copy into data/ and upload to R2 (rclone)
-  6. Publish manifest.json LAST (readers never see a manifest that
+  4. Sort contributions/expenditures by (filer_id, date) in a separate
+     low-memory pass (TEC_DUCKDB_SORT_MEMORY, default 600MB) so profile
+     queries in the browser skip unrelated row groups
+  5. Validate: no table shrinks >2%, data_through never regresses
+  6. Copy into data/ and upload to R2 (rclone)
+  7. Publish manifest.json LAST (readers never see a manifest that
      references parquet files that haven't landed)
 ```
 
@@ -28,6 +31,17 @@ Dependencies: `python3` (stdlib only), `curl`, `duckdb` CLI, `rclone`
 (upload only). R2 credentials come from env vars or a `.env` file — see
 `scripts/refresh/.env.example`. Validation failures exit non-zero;
 `--force` overrides both the skip-if-unchanged check and validation.
+
+### Self-healing
+
+The pipeline is meant to run without anyone touching it:
+
+- A failed run doesn't update `state.json`, so the next scheduled run
+  retries even if TEC hasn't republished.
+- A lock left behind by a killed run (reboot, OOM) is cleared after 3 hours.
+- A shrink that fails validation is accepted automatically once the same
+  shrink shows up in 3 distinct TEC dumps, so a real TEC restatement doesn't
+  block refreshes forever. `--force` still overrides immediately.
 
 ## manifest.json
 

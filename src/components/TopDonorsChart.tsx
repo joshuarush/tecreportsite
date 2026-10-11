@@ -1,4 +1,3 @@
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { formatCurrency } from '../lib/search';
 
 interface TopDonor {
@@ -12,8 +11,6 @@ interface TopDonorsChartProps {
   title?: string;
 }
 
-const COLORS = ['#002868', '#1a3a7a', '#344d8c', '#4e609e', '#6873b0', '#8286c2'];
-
 export default function TopDonorsChart({ donors, title = 'Top Donors' }: TopDonorsChartProps) {
   if (donors.length === 0) {
     return (
@@ -24,56 +21,42 @@ export default function TopDonorsChart({ donors, title = 'Top Donors' }: TopDono
     );
   }
 
-  // Truncate long names
-  const chartData = donors.map((donor) => ({
-    ...donor,
-    displayName: donor.name.length > 25 ? donor.name.slice(0, 22) + '...' : donor.name,
-  }));
+  // A ranked list rather than a chart: full names stay readable on phones,
+  // where a fixed-width axis left almost no room for the bars.
+  const max = Math.max(...donors.map(d => d.total), 1);
 
   return (
-    <div className="bg-white rounded-xl border border-slate-200 p-6">
+    <div className="bg-white rounded-xl border border-slate-200 p-4 sm:p-6">
       <h3 className="text-lg font-semibold text-slate-900 mb-4">{title}</h3>
-      <div className="h-80">
-        <ResponsiveContainer width="100%" height="100%">
-          <BarChart
-            data={chartData}
-            layout="vertical"
-            margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
-          >
-            <XAxis
-              type="number"
-              tickFormatter={(value) => formatCurrency(value)}
-              tick={{ fontSize: 12 }}
-            />
-            <YAxis
-              type="category"
-              dataKey="displayName"
-              width={150}
-              tick={{ fontSize: 11 }}
-            />
-            <Tooltip
-              formatter={(value) => formatCurrency(Number(value) || 0)}
-              labelFormatter={(label: string, payload) => {
-                if (payload && payload[0]) {
-                  return payload[0].payload.name;
-                }
-                return label;
-              }}
-              contentStyle={{
-                backgroundColor: 'white',
-                border: '1px solid #e2e8f0',
-                borderRadius: '8px',
-                padding: '8px 12px',
-              }}
-            />
-            <Bar dataKey="total" radius={[0, 4, 4, 0]}>
-              {chartData.map((_, index) => (
-                <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-              ))}
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
+      <ol className="space-y-3">
+        {donors.map((donor, index) => (
+          <li key={`${donor.name}-${index}`}>
+            <div className="flex items-baseline justify-between gap-3 text-sm">
+              <a
+                href={`/search/contributors?q=${encodeURIComponent(donor.name)}`}
+                className="min-w-0 truncate font-medium text-texas-blue hover:text-blue-700"
+                title={donor.name}
+              >
+                {index + 1}. {donor.name}
+              </a>
+              <span className="shrink-0 font-semibold text-slate-900 tabular-nums">
+                {formatCurrency(donor.total)}
+              </span>
+            </div>
+            <div className="mt-1 flex items-center gap-2">
+              <div className="h-2 flex-1 rounded-full bg-slate-100">
+                <div
+                  className="h-2 rounded-full bg-texas-blue"
+                  style={{ width: `${Math.max((donor.total / max) * 100, 1)}%` }}
+                />
+              </div>
+              <span className="shrink-0 text-xs text-slate-500 tabular-nums">
+                {donor.count.toLocaleString()} gift{donor.count !== 1 ? 's' : ''}
+              </span>
+            </div>
+          </li>
+        ))}
+      </ol>
     </div>
   );
 }

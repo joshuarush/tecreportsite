@@ -370,7 +370,16 @@ async function initDuckDB(): Promise<void> {
           ) AS party,
           COALESCE(district_held, district_sought) as office_district
         FROM read_parquet('filers.parquet') f
-        LEFT JOIN party_tags pt ON f.id = pt.filer_id;
+        LEFT JOIN party_tags pt ON f.id = pt.filer_id
+        -- TEC lists a filer once per filer type (e.g. GPAC -> MPAC conversions),
+        -- so one id can have several rows. Keep the current registration so
+        -- joins against transactions don't double-count.
+        QUALIFY ROW_NUMBER() OVER (
+          PARTITION BY f.id
+          ORDER BY (f.effective_stop IS NULL) DESC,
+                   f.effective_start DESC NULLS LAST,
+                   f.name
+        ) = 1;
       `);
 
       await connection.query(`
@@ -500,7 +509,7 @@ export async function searchContributions(
   const conditions: string[] = [];
 
   if (filters.query) {
-    conditions.push(`contributor_name ILIKE '%${escapeSql(filters.query)}%'`);
+    conditions.push(`contains(lower(contributor_name), lower('${escapeSql(filters.query)}'))`);
   }
   if (filters.dateFrom) {
     conditions.push(`date >= ${dateToInt(filters.dateFrom)}`);
@@ -573,7 +582,7 @@ export async function searchFilers(
   const conditions: string[] = [];
 
   if (filters.query) {
-    conditions.push(`name ILIKE '%${escapeSql(filters.query)}%'`);
+    conditions.push(`contains(lower(name), lower('${escapeSql(filters.query)}'))`);
   }
   if (filters.party) {
     conditions.push(`party = '${escapeSql(filters.party)}'`);
@@ -649,7 +658,7 @@ export async function searchExpenditures(
   const conditions: string[] = [];
 
   if (filters.query) {
-    conditions.push(`payee_name ILIKE '%${escapeSql(filters.query)}%'`);
+    conditions.push(`contains(lower(payee_name), lower('${escapeSql(filters.query)}'))`);
   }
   if (filters.dateFrom) {
     conditions.push(`date >= ${dateToInt(filters.dateFrom)}`);
@@ -980,6 +989,12 @@ export async function getReportTimeline(
            cash_on_hand, loan_balance
     FROM reports
     WHERE ${conditions.join(' AND ')}
+    -- Some older filings were re-filed without TEC flagging the original as
+    -- superseded; keep only the latest copy of each period.
+    QUALIFY ROW_NUMBER() OVER (
+      PARTITION BY period_start, period_end, form_type
+      ORDER BY received_date DESC, report_id DESC
+    ) = 1
     ORDER BY period_end ASC
   `);
 
@@ -1093,6 +1108,22 @@ export interface FullSearchResult<T> {
 
 const DEFAULT_RESULT_CAP = 5000;
 
+// Fetch one row past the cap first; only pay for a second full scan to
+// count matches when the result set is actually larger than the cap.
+async function cappedQuery<T>(
+  select: string,
+  from: string,
+  orderBy: string,
+  cap: number
+): Promise<FullSearchResult<T>> {
+  const rows = await query<T>(`${select} ${from} ${orderBy} LIMIT ${cap + 1}`);
+  if (rows.length <= cap) {
+    return { data: rows, totalCount: rows.length, capped: false };
+  }
+  const countResult = await query<{ count: number }>(`SELECT COUNT(*) as count ${from}`);
+  return { data: rows.slice(0, cap), totalCount: Number(countResult[0]?.count || 0), capped: true };
+}
+
 // Search contributions — full result set with SQL sorting
 export async function searchContributionsFull(
   filters: SearchFilters,
@@ -1104,7 +1135,7 @@ export async function searchContributionsFull(
   const conditions: string[] = [];
 
   if (filters.query) {
-    conditions.push(`contributor_name ILIKE '%${escapeSql(filters.query)}%'`);
+    conditions.push(`contains(lower(contributor_name), lower('${escapeSql(filters.query)}'))`);
   }
   if (filters.dateFrom) {
     conditions.push(`date >= ${dateToInt(filters.dateFrom)}`);
@@ -1134,19 +1165,7 @@ export async function searchContributionsFull(
     orderBy = `ORDER BY ${col} ${dir}`;
   }
 
-  const countResult = await query<{ count: number }>(`
-    SELECT COUNT(*) as count FROM contributions ${whereClause}
-  `);
-  const totalCount = Number(countResult[0]?.count || 0);
-
-  const data = await query<Contribution>(`
-    SELECT * FROM contributions
-    ${whereClause}
-    ${orderBy}
-    LIMIT ${cap}
-  `);
-
-  return { data, totalCount, capped: totalCount > cap };
+  return cappedQuery<Contribution>(`SELECT *`, `FROM contributions ${whereClause}`, orderBy, cap);
 }
 
 // Search filers — full result set with SQL sorting
@@ -1160,7 +1179,7 @@ export async function searchFilersFull(
   const conditions: string[] = [];
 
   if (filters.query) {
-    conditions.push(`name ILIKE '%${escapeSql(filters.query)}%'`);
+    conditions.push(`contains(lower(name), lower('${escapeSql(filters.query)}'))`);
   }
   if (filters.party) {
     conditions.push(`party = '${escapeSql(filters.party)}'`);
@@ -1184,19 +1203,7 @@ export async function searchFilersFull(
     orderBy = `ORDER BY ${col} ${dir}`;
   }
 
-  const countResult = await query<{ count: number }>(`
-    SELECT COUNT(*) as count FROM filers ${whereClause}
-  `);
-  const totalCount = Number(countResult[0]?.count || 0);
-
-  const data = await query<Filer>(`
-    SELECT * FROM filers
-    ${whereClause}
-    ${orderBy}
-    LIMIT ${cap}
-  `);
-
-  return { data, totalCount, capped: totalCount > cap };
+  return cappedQuery<Filer>(`SELECT *`, `FROM filers ${whereClause}`, orderBy, cap);
 }
 
 // Search expenditures — full result set with SQL sorting
@@ -1212,7 +1219,7 @@ export async function searchExpendituresFull(
   const colPrefix = needsJoin ? 'e.' : '';
 
   if (filters.query) {
-    conditions.push(`${colPrefix}payee_name ILIKE '%${escapeSql(filters.query)}%'`);
+    conditions.push(`contains(lower(${colPrefix}payee_name), lower('${escapeSql(filters.query)}'))`);
   }
   if (filters.dateFrom) {
     conditions.push(`${colPrefix}date >= ${dateToInt(filters.dateFrom)}`);
@@ -1230,10 +1237,10 @@ export async function searchExpendituresFull(
     conditions.push(`${colPrefix}filer_id = '${escapeSql(filters.filerId)}'`);
   }
   if (filters.filerName) {
-    conditions.push(`${colPrefix}filer_name ILIKE '%${escapeSql(filters.filerName)}%'`);
+    conditions.push(`contains(lower(${colPrefix}filer_name), lower('${escapeSql(filters.filerName)}'))`);
   }
   if (filters.city) {
-    conditions.push(`${colPrefix}payee_city ILIKE '%${escapeSql(filters.city)}%'`);
+    conditions.push(`contains(lower(${colPrefix}payee_city), lower('${escapeSql(filters.city)}'))`);
   }
   if (filters.state) {
     if (filters.state === 'TX') {
@@ -1269,19 +1276,7 @@ export async function searchExpendituresFull(
     orderBy = `ORDER BY ${colPrefix}${col} ${dir}`;
   }
 
-  const countResult = await query<{ count: number }>(`
-    SELECT COUNT(*) as count FROM ${fromClause} ${whereClause}
-  `);
-  const totalCount = Number(countResult[0]?.count || 0);
-
-  const data = await query<Expenditure>(`
-    SELECT ${selectCols} FROM ${fromClause}
-    ${whereClause}
-    ${orderBy}
-    LIMIT ${cap}
-  `);
-
-  return { data, totalCount, capped: totalCount > cap };
+  return cappedQuery<Expenditure>(`SELECT ${selectCols}`, `FROM ${fromClause} ${whereClause}`, orderBy, cap);
 }
 
 // Get contributions for a filer — full result set with SQL sorting
@@ -1306,19 +1301,7 @@ export async function getContributionsForFilerFull(
     orderBy = `ORDER BY ${col} ${dir}`;
   }
 
-  const countResult = await query<{ count: number }>(`
-    SELECT COUNT(*) as count FROM contributions ${whereClause}
-  `);
-  const totalCount = Number(countResult[0]?.count || 0);
-
-  const data = await query<Contribution>(`
-    SELECT * FROM contributions
-    ${whereClause}
-    ${orderBy}
-    LIMIT ${cap}
-  `);
-
-  return { data, totalCount, capped: totalCount > cap };
+  return cappedQuery<Contribution>(`SELECT *`, `FROM contributions ${whereClause}`, orderBy, cap);
 }
 
 export async function getExpendituresForFilerFull(
@@ -1342,19 +1325,7 @@ export async function getExpendituresForFilerFull(
     orderBy = `ORDER BY ${col} ${dir}`;
   }
 
-  const countResult = await query<{ count: number }>(`
-    SELECT COUNT(*) as count FROM expenditures ${whereClause}
-  `);
-  const totalCount = Number(countResult[0]?.count || 0);
-
-  const data = await query<Expenditure>(`
-    SELECT * FROM expenditures
-    ${whereClause}
-    ${orderBy}
-    LIMIT ${cap}
-  `);
-
-  return { data, totalCount, capped: totalCount > cap };
+  return cappedQuery<Expenditure>(`SELECT *`, `FROM expenditures ${whereClause}`, orderBy, cap);
 }
 
 export async function getLedgerForFilerFull(
@@ -1425,18 +1396,7 @@ export async function getLedgerForFilerFull(
     orderBy = `ORDER BY ${col} ${dir}`;
   }
 
-  const countResult = await query<{ count: number }>(`
-    SELECT COUNT(*) as count FROM (${ledgerSql}) ledger
-  `);
-  const totalCount = Number(countResult[0]?.count || 0);
-
-  const data = await query<LedgerTransaction>(`
-    SELECT * FROM (${ledgerSql}) ledger
-    ${orderBy}
-    LIMIT ${cap}
-  `);
-
-  return { data, totalCount, capped: totalCount > cap };
+  return cappedQuery<LedgerTransaction>(`SELECT *`, `FROM (${ledgerSql}) ledger`, orderBy, cap);
 }
 
 export function isDuckDBReady(): boolean {
