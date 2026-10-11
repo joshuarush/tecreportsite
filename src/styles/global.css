@@ -36,3 +36,72 @@ body {
 .card {
   @apply bg-white rounded-xl shadow-sm border border-slate-200 p-6;
 }
+
+/* ============================================
+   First-visit tour
+   ============================================ */
+
+.tour-display {
+  font-family: Fraunces, Georgia, 'Times New Roman', serif;
+  font-weight: 600;
+  font-optical-sizing: auto;
+  letter-spacing: -0.015em;
+}
+
+/* Faint ledger rules behind the step content */
+.tour-paper {
+  background-color: var(--color-texas-cream);
+  background-image:
+    radial-gradient(120% 60% at 100% 0%, rgb(212 168 75 / 0.12), transparent 60%),
+    repeating-linear-gradient(to bottom, transparent 0 31px, rgb(0 40 104 / 0.045) 31px 32px);
+}
+
+.tour-band {
+  background-image:
+    radial-gradient(90% 140% at 0% 0%, rgb(255 255 255 / 0.08), transparent 55%),
+    radial-gradient(70% 120% at 100% 100%, rgb(191 13 62 / 0.28), transparent 60%);
+}
+
+.tour-backdrop { animation: tour-fade 240ms ease-out both; }
+.tour-sheet { animation: tour-sheet-up 420ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+@media (min-width: 640px) {
+  .tour-sheet { animation-name: tour-pop; }
+}
+
+.tour-step-next { animation: tour-step-next 380ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+.tour-step-prev { animation: tour-step-prev 380ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+.tour-row { animation: tour-row 420ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+.tour-coin,
+.tour-route-fill {
+  transition: left 700ms cubic-bezier(0.65, 0, 0.35, 1), width 700ms cubic-bezier(0.65, 0, 0.35, 1);
+}
+.tour-coin > span { animation: tour-coin-spin 700ms cubic-bezier(0.65, 0, 0.35, 1); }
+
+.tour-stop-pulse { animation: tour-pulse 1.8s ease-out infinite; }
+
+.tour-typed {
+  white-space: nowrap;
+  animation: tour-type 520ms steps(var(--chars, 6)) 150ms both;
+}
+.tour-caret { animation: tour-blink 1s step-end infinite; }
+
+@keyframes tour-fade { from { opacity: 0; } }
+@keyframes tour-sheet-up { from { transform: translateY(100%); } }
+@keyframes tour-pop { from { opacity: 0; transform: translateY(16px) scale(0.97); } }
+@keyframes tour-step-next { from { opacity: 0; transform: translateX(28px); } }
+@keyframes tour-step-prev { from { opacity: 0; transform: translateX(-28px); } }
+@keyframes tour-row { from { opacity: 0; transform: translateY(8px); } }
+@keyframes tour-type { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
+@keyframes tour-blink { 50% { opacity: 0; } }
+@keyframes tour-coin-spin { 0% { transform: rotateY(0); } 100% { transform: rotateY(360deg); } }
+@keyframes tour-pulse {
+  0% { box-shadow: 0 0 0 0 rgb(212 168 75 / 0.6); }
+  100% { box-shadow: 0 0 0 10px rgb(212 168 75 / 0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tour-backdrop, .tour-sheet, .tour-step-next, .tour-step-prev, .tour-row,
+  .tour-typed, .tour-caret, .tour-stop-pulse, .tour-coin > span { animation: none; }
+  .tour-coin, .tour-route-fill { transition: none; }
+}
