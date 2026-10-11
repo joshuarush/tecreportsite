@@ -99,9 +99,20 @@ export default function CandidateSearch({ initialQuery = '' }: CandidateSearchPr
     }
   }, [query, filters, sortState]);
 
+  // The page is static, so ?q= has to be read in the browser; wait for it
+  // before the first search so deep links (homepage quick search, the tour)
+  // don't run an unfiltered search first.
+  const [urlChecked, setUrlChecked] = useState(false);
   useEffect(() => {
+    const urlQuery = new URLSearchParams(window.location.search).get('q');
+    if (urlQuery) setQuery(urlQuery);
+    setUrlChecked(true);
+  }, []);
+
+  useEffect(() => {
+    if (!urlChecked) return;
     performSearch();
-  }, [filters, sortState]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [filters, sortState, urlChecked]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleFilterChange = (newFilters: FilterValues) => {
     setFilters(newFilters);
